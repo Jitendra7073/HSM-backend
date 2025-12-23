@@ -95,15 +95,6 @@ const login = async (req, res) => {
       role: user.role,
       token,
     });
-    // sendMail();
-    res
-      .status(200)
-      .json({
-        success: true,
-        message: "Login Successfully",
-        token,
-        role: user.role,
-      });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error" });
   }

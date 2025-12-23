@@ -82,7 +82,6 @@ const createBusiness = async (req, res) => {
       business: newBusiness,
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create business.",
@@ -267,7 +266,6 @@ const createBusinessCategory = async (req, res) => {
       category: newCategory,
     });
   } catch (error) {
-    console.error("Business category create :", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create business category.",
@@ -283,6 +281,8 @@ const createService = async (req, res) => {
   const { error, value } = serviceProfileSchema.validate(req.body, {
     abortEarly: false,
   });
+
+  console.log("Values :",value)
   if (error) {
     return res.status(422).json({
       success: false,
@@ -336,16 +336,23 @@ const createService = async (req, res) => {
       });
     }
 
-    console.log("user", user);
     // Limit check — a provider can only create 5 services
     const providerPlan = user?.providerSubscription?.plan?.name.toLowerCase();
-    console.log("provider Plan :", providerPlan);
+
+    const existingServiceCount = await prisma.Service.count({
+      where: { businessProfileId: business.id },
+    });
+
+    const isLimitedPlan = !["premimum", "pro"].includes(providerPlan);
+
+    if (isLimitedPlan && existingServiceCount >= 2) {
+      return res.status(507).json({
+        success: false,
+        msg: "Upgrade your plan to add more services.",
+      });
+    }
 
     if (providerPlan === "premimum") {
-      const existingServiceCount = await prisma.Service.count({
-        where: { businessProfileId: business.id },
-      });
-
       if (existingServiceCount >= 5) {
         return res.status(507).json({
           success: false,
@@ -384,7 +391,7 @@ const createService = async (req, res) => {
       service: newService,
     });
   } catch (err) {
-    console.error("Service Creating Error:", err);
+    console.log(err)
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create service.",
@@ -466,7 +473,6 @@ const getServices = async (req, res) => {
       bookingCounts,
     });
   } catch (error) {
-    console.error(error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch services.",
@@ -520,8 +526,6 @@ const updateService = async (req, res) => {
       service: updatedService,
     });
   } catch (error) {
-    console.error("Update Service Error:", error);
-
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not update service.",
@@ -626,14 +630,8 @@ const createSlot = async (req, res) => {
   const userId = req.user.id;
 
   try {
-    const {
-      startTime,
-      endTime,
-      breakStartTime,
-      breakEndTime,
-      slotsDuration,
-      singleSlot,
-    } = req.body;
+    const { startTime, endTime, breakStartTime, breakEndTime, slotsDuration } =
+      req.body;
 
     // Find provider business
     const business = await prisma.BusinessProfile.findUnique({
@@ -653,36 +651,7 @@ const createSlot = async (req, res) => {
 
     const normalizeTime = (t) => t.trim().toUpperCase();
 
-    // CASE 1: CREATE A SINGLE SLOT
-    if (singleSlot) {
-      const selectedTime = normalizeTime(singleSlot);
-
-      const conflict = existingSlots.some(
-        (slot) => normalizeTime(slot.time) === selectedTime
-      );
-
-      if (conflict) {
-        return res.status(400).json({
-          success: false,
-          msg: `Slot ${selectedTime} already exists.`,
-        });
-      }
-
-      const newSlot = await prisma.Slot.create({
-        data: {
-          time: selectedTime,
-          businessProfileId: business.id,
-        },
-      });
-
-      return res.status(201).json({
-        success: true,
-        msg: "Single slot created successfully",
-        slot: newSlot,
-      });
-    }
-
-    // CASE 2: GENERATE MULTIPLE SLOTS
+    // GENERATE MULTIPLE SLOTS
     function convertToMinutes(timeStr) {
       let [hours, minutes] = timeStr.split(":");
       minutes = minutes.replace("AM", "").replace("PM", "").trim();
@@ -752,7 +721,6 @@ const createSlot = async (req, res) => {
       slots: generatedSlots,
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create slot.",
@@ -958,7 +926,6 @@ const bookingList = async (req, res) => {
       bookings,
     });
   } catch (error) {
-    console.error("Booking List Error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server error while fetching bookings.",
@@ -1071,8 +1038,6 @@ const updateBooking = async (req, res) => {
       updatedBooking,
     });
   } catch (error) {
-    console.error("Update booking error:", error);
-
     return res.status(500).json({
       success: false,
       msg: "Server error while updating booking.",
@@ -1234,180 +1199,9 @@ const getDashboardStats = async (req, res) => {
       user,
     });
   } catch (err) {
-    console.error("Dashboard Stats Error:", err);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch dashboard stats.",
-    });
-  }
-};
-
-/* ---------------- TEAM MEMBERS ---------------- */
-const getTeamMembersByServiceId = async (req, res) => {
-  const { serviceId } = req.params;
-
-  try {
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      select: { id: true },
-    });
-
-    if (!service) {
-      return res.status(404).json({
-        success: false,
-        msg: "Service not found",
-      });
-    }
-
-    const members = await prisma.teams.findMany({
-      where: { serviceId },
-      orderBy: { name: "asc" },
-    });
-
-    return res.status(200).json({
-      success: true,
-      msg: "Team members fetched successfully",
-      count: members.length,
-      members,
-    });
-  } catch (error) {
-    console.error("Error fetching team members:", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Internal Server Error: Unable to fetch team members.",
-    });
-  }
-};
-
-const createTeamMemberForAService = async (req, res) => {
-  const { serviceId } = req.params;
-
-  const { error, value } = teamMemberSchema.validate(req.body, {
-    abortEarly: false,
-  });
-  if (error) {
-    return res.status(422).json({
-      success: false,
-      msg: "Validation Error",
-      errors: error.details.map((e) => e.message),
-    });
-  }
-
-  try {
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-      select: { id: true, businessProfileId: true },
-    });
-
-    if (!service) {
-      return res.status(404).json({
-        success: false,
-        msg: "Service not found. Cannot add team member.",
-      });
-    }
-
-    const member = await prisma.teams.create({
-      data: {
-        ...value,
-        serviceId: service.id,
-        businessProfileId: service.businessProfileId,
-      },
-    });
-
-    return res.status(201).json({
-      success: true,
-      msg: "Team member added successfully",
-      member,
-    });
-  } catch (error) {
-    console.error("Error creating team member:", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Internal Server Error: Unable to create team member.",
-    });
-  }
-};
-
-const updateTeamMemberForAService = async (req, res) => {
-  const { serviceId, memberId } = req.params;
-  const { error, value } = teamMemberSchema.validate(req.body, {
-    abortEarly: false,
-  });
-
-  if (error) {
-    return res.status(422).json({
-      success: false,
-      msg: error.details.map((e) => e.message),
-    });
-  }
-
-  try {
-    const existingMember = await prisma.Teams.findFirst({
-      where: {
-        id: memberId,
-        serviceId: serviceId,
-      },
-    });
-
-    if (!existingMember) {
-      return res.status(404).json({
-        success: false,
-        msg: "Team member not found for this service",
-      });
-    }
-
-    const updatedMember = await prisma.Teams.update({
-      where: { id: memberId },
-      data: {
-        ...value,
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      msg: "Team member updated successfully",
-      member: updatedMember,
-    });
-  } catch (error) {
-    console.error("error updating team member", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Unable to update the Team member",
-    });
-  }
-};
-
-const deleteTeamMemberForAService = async (req, res) => {
-  const { serviceId, memberId } = req.params;
-
-  try {
-    const existingMember = await prisma.Teams.findUnique({
-      where: {
-        id: memberId,
-        serviceId: serviceId,
-      },
-    });
-
-    if (!existingMember) {
-      return res.status(404).json({
-        success: false,
-        msg: "Team member not found for this service",
-      });
-    }
-
-    await prisma.Teams.delete({
-      where: { id: memberId },
-    });
-
-    return res.status(200).json({
-      success: true,
-      msg: "Team member deleted successfully",
-    });
-  } catch (error) {
-    console.error("error deleting team member", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Unable to delete the Team member",
     });
   }
 };
@@ -1480,7 +1274,6 @@ const updateServiceFeedbackStatus = async (req, res) => {
       .status(200)
       .json({ msg: "Feedback status updated successfully" });
   } catch (error) {
-    console.error("Feedback status update error:", error);
     return res.status(500).json({ msg: "Failed to update feedback status" });
   }
 };
@@ -1490,11 +1283,8 @@ const getAllSubscriptionPlans = async (req, res) => {
   try {
     const plans = await prisma.ProviderSubscriptionPlan.findMany();
     return res.status(200).json({ success: true, plans });
-  } catch (error) {
-    console.error("Error: failed to fetch all subscription plans");
-  }
+  } catch (error) {}
 };
-
 module.exports = {
   // BUSINESS
   createBusiness,
@@ -1524,12 +1314,6 @@ module.exports = {
 
   // DASHBOARD STATS
   getDashboardStats,
-
-  // Manage Team Members
-  getTeamMembersByServiceId,
-  createTeamMemberForAService,
-  updateTeamMemberForAService,
-  deleteTeamMemberForAService,
 
   // Feedbacks
   getAllFeedbacks,

@@ -3,7 +3,7 @@ const prisma = require("../prismaClient");
 const {
   AddressValidation,
 } = require("../helper/validation/address.validation");
-const { verifyToken } = require("../helper/jwtToken");
+const jwt = require("jsonwebtoken");
 
 /* ---------------- GET USER PROFILE ---------------- */
 const getUserProfile = async (req, res) => {
@@ -48,7 +48,6 @@ const getUserProfile = async (req, res) => {
       user,
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch user profile.",
@@ -59,7 +58,7 @@ const getUserProfile = async (req, res) => {
 /* ---------------- GET ME ---------------- */
 const getMe = async (req, res) => {
   const token = req.params.token;
-  const user = verifyToken(token);
+  const user = jwt.verify(token, process.env.JWT_SECRET_KEY);
   if (!token || !user) {
     return res.status(400).json({ success: false, message: "Invalid Token" });
   }
@@ -79,7 +78,6 @@ const getMe = async (req, res) => {
     });
     return res.status(200).json({ success: true, user: userData });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -103,7 +101,6 @@ const deleteProfile = async (req, res) => {
       msg: "User deleted successfully.",
     });
   } catch (error) {
-    console.error(error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not delete user.",
@@ -126,7 +123,6 @@ const getAddress = async (req, res) => {
       address,
     });
   } catch (error) {
-    console.error(error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch address.",
@@ -166,7 +162,6 @@ const addAddress = async (req, res) => {
       address: newAddress,
     });
   } catch (error) {
-    console.error(error);
     return res.status(500).send({
       success: false,
       msg: "Server Error: Could not create address.",
@@ -217,7 +212,6 @@ const deleteAddress = async (req, res) => {
       msg: "Address deleted successfully.",
     });
   } catch (error) {
-    console.error(error);
     return res.status(500).json({
       success: false,
       msg: "Server error while deleting address.",

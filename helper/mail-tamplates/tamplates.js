@@ -1,326 +1,406 @@
 /* ---------------- WELCOME USER ---------------- */
 function welcomeUserTamplate(userName) {
+  const ExploreServicesURL = "http://localhost:3000/customer/explore";
   return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Welcome to HSM</title>
+</head>
 
-          <table role="presentation" class="container" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); border-collapse: collapse; overflow: hidden;">
-            
-            <!-- Header -->
-            <tr>
-              <td class="header" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 28px 24px; text-align: center; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
-                Welcome Aboard!
-              </td>
-            </tr>
-            
-            <!-- Content -->
-            <tr>
-              <td class="content" style="padding: 32px 28px;">
-                
-                <!-- Greeting -->
-                <p style="margin: 0 0 8px 0; font-size: 16px; color: #2c3e50; font-weight: 600;">
-                  Hi ${userName},
-                </p>
-                <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #546e7a;">
-                  Thank you for joining us! We're thrilled to have you on board. Your account is now active and ready to use.
-                </p>
+<body style="margin:0; padding:0; background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
-                <!-- Additional Info -->
-                <p style="margin-top: 28px; font-size: 13px; line-height: 1.6; color: #546e7a;">
-                  If you have any questions or need help getting started, our support team is always available to assist you.
-                </p>
+  <!-- Main Content -->
+  <main style="padding:32px; max-width:720px;">
+    <p style="margin:0 0 12px 0; font-size:14px;">
+      Hi <strong>${userName}</strong>,
+    </p>
 
-                <!-- Footer -->
-                <p class="footer-text" style="margin-top: 28px; font-size: 12px; color: #90a4ae; text-align: center; line-height: 1.6;">
-                  <a href="mailto:support@example.com" style="color: #2a5298; text-decoration: none; font-weight: 600;">Contact Support</a> • 
-                  <a href="#" style="color: #2a5298; text-decoration: none; font-weight: 600;">Help Center</a>
-                </p>
-              </td>
-            </tr>
-            
-            <!-- Footer Divider -->
-            <tr>
-              <td style="height: 1px; background-color: #eceff1;"></td>
-            </tr>
-            
-            <!-- Branding Footer -->
-            <tr>
-              <td style="padding: 16px 28px; text-align: center; background-color: #fafbfc;">
-                <p style="margin: 0; font-size: 12px; color: #90a4ae;">
-                  © 2024 HSM. All rights reserved.
-                </p>
-              </td>
-            </tr>
-          </table>
+    <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6;">
+      Welcome to <strong>HSM</strong>. Your account has been successfully created.
+      You can now book verified professionals for home services such as repairs,
+      maintenance, and cleaning.
+    </p>
+
+    <p style="margin:0 0 24px 0; font-size:14px; line-height:1.6;">
+      To get started, explore available services or manage your profile.
+    </p>
+
+    <!-- CTA -->
+    <p style="margin:24px 0;">
+      <a href="${ExploreServicesURL}"
+         style="display:inline-block; padding:10px 16px;
+         background-color:#2563eb; color:#ffffff;
+         text-decoration:none; font-size:14px; font-weight:600; border-radius:4px;">
+        Explore Services
+      </a>
+    </p>
+
+    <p style="margin:32px 0 8px 0; font-size:13px; color:#4b5563;">
+      If you need any assistance, feel free to contact our support team.
+    </p>
+
+    <p style="margin:0; font-size:13px;">
+      <a href="mailto:hsm@support.com" style="color:#2563eb; text-decoration:none;">
+        hsm@support.com
+      </a>
+    </p>
+  </main>
+
+  <!-- Footer -->
+  <footer style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+    © ${new Date().getFullYear()} HSM. All rights reserved.
+  </footer>
+
+</body>
+</html>
   `;
 }
 
 /* ---------------- FORGOT PASSWORD ---------------- */
 const forgotPasswordTamplate = (name, token) => {
+  const resetUrl = `http://localhost:3000/auth/reset-password/${token}`;
+
   return `
-<table width="100%" cellpadding="0" cellspacing="0" style="font-family: Arial, sans-serif; background:#f7f7f7; padding:20px;">
-  <tr>
-    <td>
-      <table cellpadding="0" cellspacing="0" width="600" align="center" style="background:#ffffff; border-radius:8px; padding:30px;">
-        <tr>
-          <td>
-            <h2 style="color:#333;">Hello ${name},</h2>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Password Reset</title>
+</head>
 
-            <p style="font-size:16px; color:#555;">
-              You requested to reset your password.  
-              Click the button below to proceed:
-            </p>
+<body style="margin:0; padding:0; background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
-            <a href="http://localhost:3000/auth/reset-password/${token}"
-              style="display:inline-block; margin:20px 0; background:#007bff; color:#fff; padding:12px 20px; text-decoration:none; border-radius:5px;">
-              Reset Password
-            </a>
+  <!-- Main Content -->
+  <main style="padding:32px; max-width:720px;">
+    <p style="margin:0 0 12px 0; font-size:14px;">
+      Hello <strong>${name}</strong>,
+    </p>
 
-            <p style="font-size:14px; color:#777;">
-              If you did not request this, please ignore this email.
-            </p>
+    <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6;">
+      We received a request to reset the password for your HSM account.
+      If you initiated this request, you can reset your password using the link below.
+    </p>
 
-            <p style="margin-top:30px; font-size:14px; color:#777;">
-              Best Regards,<br/>
-              <strong>Home Service Management Team</strong>
-            </p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
+    <!-- CTA -->
+    <p style="margin:24px 0;">
+      <a href="${resetUrl}"
+         style="display:inline-block; padding:10px 16px;
+         background-color:#2563eb; color:#ffffff;
+         text-decoration:none; font-size:14px; font-weight:600; border-radius:4px;">
+        Reset Password
+      </a>
+    </p>
+
+    <p style="margin:24px 0 16px 0; font-size:13px; color:#4b5563; line-height:1.6;">
+      This password reset link is valid for a limited time.
+      If you did not request a password reset, please ignore this email.
+      Your account will remain secure.
+    </p>
+
+    <p style="margin:32px 0 0 0; font-size:13px; color:#4b5563;">
+      Regards,<br />
+      <strong>Home Service Management Team</strong>
+    </p>
+  </main>
+
+  <!-- Footer -->
+  <footer style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+    © ${new Date().getFullYear()} HSM. All rights reserved.
+  </footer>
+
+</body>
+</html>
   `;
 };
 
-/* ---------------- BOOKING SUCCESS ---------------- */
+/* ---------------- BOOKING SUCCESS EMAIL ---------------- */
 function bookingSuccessEmailTemplate({
   userName,
   bookingIds,
   totalAmount,
   paymentId,
   paymentDate,
-  customerPortalUrl,
   services,
   businessName,
 }) {
+  const formattedDate = new Date(paymentDate).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
   return `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Booking Confirmed</title>
-    <style type="text/css">
-      @media only screen and (max-width: 600px) {
-        .container { width: 100% !important; }
-        .header { padding: 16px !important; font-size: 20px !important; }
-        .content { padding: 18px !important; }
-        .cta-button { width: 100% !important; padding: 14px !important; box-sizing: border-box !important; }
-        .footer-text { font-size: 11px !important; }
-      }
-    </style>
-  </head>
-  <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f2f5;">
-    
-    <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f0f2f5;">
-      <tr>
-        <td style="padding: 30px 16px;">
-          
-          <!-- Main Container -->
-          <table role="presentation" class="container" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); border-collapse: collapse; overflow: hidden;">
-            
-            <!-- Header -->
-            <tr>
-              <td class="header" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 28px 24px; text-align: center; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
-                ✓ Booking Confirmed
-              </td>
-            </tr>
-            
-            <!-- Content -->
-            <tr>
-              <td class="content" style="padding: 32px 28px;">
-                
-                <!-- Greeting -->
-                <p style="margin: 0 0 8px 0; font-size: 16px; color: #2c3e50; font-weight: 600;">
-                  Hi ${userName},
-                </p>
-                <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #546e7a;">
-                  Your booking has been successfully confirmed! We've received your payment and your appointment is all set.
-                </p>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Booking Confirmed</title>
+</head>
 
-                <!-- Quick Summary -->
-                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 6px; margin: 24px 0;">
-                  <table role="presentation" style="width: 100%; border-collapse: collapse;">
-                    <tr>
-                      <td style="padding: 8px 0; font-size: 13px; color: #90a4ae;">Booking Reference</td>
-                      <td style="text-align: right; padding: 8px 0; font-size: 12px; font-weight: 600; color: #2c3e50; font-family: 'Courier New', monospace;">${bookingIds[0]}</td>
-                    </tr>
-                    <tr style="border-top: 1px solid #e0e0e0;">
-                      <td style="padding: 12px 0; font-size: 13px; color: #90a4ae;">Total Amount</td>
-                      <td style="text-align: right; padding: 12px 0; font-size: 18px; font-weight: 700; color: #1e3c72;">₹${totalAmount}</td>
-                    </tr>
-                  </table>
-                </div>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
-                <!-- Information Text -->
-                <p style="margin: 24px 0; font-size: 14px; line-height: 1.6; color: #546e7a;">
-                  A detailed invoice and booking confirmation have been attached to this email. Please keep them safe for your records.
-                </p>
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
+    <tr>
+      <td style="padding:24px;">
 
-                <!-- Support Text -->
-                <p class="footer-text" style="margin-top: 32px; font-size: 12px; color: #90a4ae; text-align: center; line-height: 1.6;">
-                  Need assistance? Our support team is here to help.<br/>
-                  <a href="mailto:hsm@supportEmail.com" style="color: #2a5298; text-decoration: none; font-weight: 600;">Contact Support</a>
-                </p>
-              </td>
-            </tr>
-            
-            <!-- Footer Divider -->
-            <tr>
-              <td style="height: 1px; background-color: #eceff1;"></td>
-            </tr>
-            
-            <!-- Branding Footer -->
-            <tr>
-              <td style="padding: 16px 28px; text-align: center; background-color: #fafbfc;">
-                <p style="margin: 0; font-size: 12px; color: #90a4ae;">
-                  © 2024 ${businessName}. All rights reserved.
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-  </html>
+        <!-- Main Container -->
+        <table width="100%" cellpadding="0" cellspacing="0"
+          style="max-width:720px; margin:0 auto; background-color:#ffffff; border-collapse:collapse;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:20px 24px; border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0; font-size:18px; font-weight:600;">
+                ${businessName}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:24px; font-size:14px; line-height:1.6;">
+
+              <p style="margin:0 0 12px;">
+                Hi <strong>${userName}</strong>,
+              </p>
+
+              <p style="margin:0 0 16px;">
+                Your booking has been successfully confirmed. We’ve received your payment
+                and your service request is scheduled as per the details below.
+              </p>
+
+              <!-- Booking Summary -->
+              <h3 style="margin:24px 0 12px; font-size:15px; font-weight:600;">
+                Booking Summary
+              </h3>
+
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="border-collapse:collapse; font-size:13px;">
+                <tr>
+                  <td style="padding:8px 0; color:#6b7280;">Booking ID(s)</td>
+                  <td style="padding:8px 0; text-align:right; font-family:monospace;">
+                    ${bookingIds.join(", ")}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:8px 0; color:#6b7280;">Payment ID</td>
+                  <td style="padding:8px 0; text-align:right;">
+                    ${paymentId}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:8px 0; color:#6b7280;">Payment Date</td>
+                  <td style="padding:8px 0; text-align:right;">
+                    ${formattedDate}
+                  </td>
+                </tr>
+
+                <tr>
+                  <td style="padding:12px 0; color:#6b7280; border-top:1px solid #e5e7eb;">
+                    Total Amount Paid
+                  </td>
+                  <td style="padding:12px 0; text-align:right; font-size:15px; font-weight:600; border-top:1px solid #e5e7eb;">
+                    ₹${totalAmount}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Services Details -->
+              <h3 style="margin:28px 0 12px; font-size:15px; font-weight:600;">
+                Services Booked
+              </h3>
+
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="border-collapse:collapse; font-size:13px;">
+                <thead>
+                  <tr>
+                    <th align="left" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Service</th>
+                    <th align="left" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Date</th>
+                    <th align="left" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Time</th>
+                    <th align="right" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${services
+                    .map(
+                      (service) => `
+                      <tr>
+                        <td style="padding:8px 0;">${service.title}</td>
+                        <td style="padding:8px 0;">${service.bookingDate}</td>
+                        <td style="padding:8px 0;">${service.slotTime}</td>
+                        <td style="padding:8px 0; text-align:right;">₹${service.price}</td>
+                      </tr>
+                    `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+
+              <!-- Invoice Note -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                A detailed invoice for your booking is attached with this email for your reference.
+              </p>
+
+              <!-- Support -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                If you have any questions or need assistance, please contact our support team.
+              </p>
+
+              <p style="margin:6px 0 0; font-size:13px;">
+                <a href="mailto:hsm@supportEmail.com" style="color:#2563eb; text-decoration:none;">
+                  hsm@supportEmail.com
+                </a>
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+              © ${new Date().getFullYear()} ${businessName}. All rights reserved.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
   `;
 }
 
-/* ---------------- BOOKING FAILED ---------------- */
+/* ---------------- BOOKING FAILED EMAIL ---------------- */
 function bookingFailedEmailTemplate({
   userName,
   services,
   businessName,
-  customerPortalUrl,
 }) {
   return `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Failed</title>
-    <style type="text/css">
-      @media only screen and (max-width: 600px) {
-        .container { width: 100% !important; }
-        .header { padding: 16px !important; font-size: 20px !important; }
-        .content { padding: 18px !important; }
-        .service-item { font-size: 13px !important; padding: 8px 0 !important; }
-        .cta-button { width: 100% !important; padding: 14px !important; box-sizing: border-box !important; }
-        .footer-text { font-size: 11px !important; }
-      }
-    </style>
-  </head>
-  <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f2f5;">
-    
-    <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f0f2f5;">
-      <tr>
-        <td style="padding: 30px 16px;">
-          
-          <!-- Main Container -->
-          <table role="presentation" class="container" style="width: 100%; max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); border-collapse: collapse; overflow: hidden;">
-            
-            <!-- Header -->
-            <tr>
-              <td class="header" style="background: linear-gradient(135deg, #d32f2f 0%, #c62828 100%); padding: 28px 24px; text-align: center; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
-                ✕ Payment Failed
-              </td>
-            </tr>
-            
-            <!-- Content -->
-            <tr>
-              <td class="content" style="padding: 32px 28px;">
-                
-                <!-- Greeting -->
-                <p style="margin: 0 0 8px 0; font-size: 16px; color: #2c3e50; font-weight: 600;">
-                  Hi ${userName},
-                </p>
-                <p style="margin: 0 0 24px 0; font-size: 14px; line-height: 1.6; color: #546e7a;">
-                  Unfortunately, we weren't able to process your payment. Your booking was not completed.
-                </p>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Payment Failed</title>
+</head>
 
-                <!-- Alert Box -->
-                <div style="background-color: #ffebee; border-left: 4px solid #d32f2f; padding: 16px; border-radius: 4px; margin: 24px 0;">
-                  <p style="margin: 0; font-size: 13px; color: #c62828; font-weight: 500;">
-                    Please try again or use a different payment method.
-                  </p>
-                </div>
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
-                <!-- Services Attempted -->
-                <h3 style="margin: 24px 0 14px 0; font-size: 17px; color: #1e3c72; font-weight: 700;">
-                  Services Attempted
-                </h3>
-                <table role="presentation" style="width: 100%; border-collapse: collapse; background-color: #f8f9fa; padding: 16px; border-radius: 6px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
+    <tr>
+      <td style="padding:24px;">
+
+        <!-- Main Container -->
+        <table width="100%" cellpadding="0" cellspacing="0"
+          style="max-width:720px; margin:0 auto; background-color:#ffffff; border-collapse:collapse;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:20px 24px; border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0; font-size:18px; font-weight:600;">
+                ${businessName}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:24px; font-size:14px; line-height:1.6;">
+
+              <p style="margin:0 0 12px;">
+                Hi <strong>${userName}</strong>,
+              </p>
+
+              <p style="margin:0 0 16px;">
+                We were unable to process your payment, and your booking could not be completed.
+                No amount has been charged.
+              </p>
+
+              <!-- Alert -->
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="margin:16px 0; background-color:#fef2f2; border-left:4px solid #dc2626;">
+                <tr>
+                  <td style="padding:12px; font-size:13px; color:#7f1d1d;">
+                    Please retry the payment or use a different payment method.
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Services Attempted -->
+              <h3 style="margin:24px 0 12px; font-size:15px; font-weight:600;">
+                Services Attempted
+              </h3>
+
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="border-collapse:collapse; font-size:13px;">
+                <thead>
+                  <tr>
+                    <th align="left" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Service</th>
+                    <th align="left" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Date</th>
+                    <th align="left" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Time</th>
+                    <th align="right" style="padding:8px 0; border-bottom:1px solid #e5e7eb;">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
                   ${services
                     .map(
-                      (s) => `
-                    <tr class="service-item">
-                      <td style="padding: 8px 0; font-size: 14px; color: #546e7a;">${s.name}</td>
-                      <td style="text-align: right; padding: 8px 0; font-size: 14px; color: #2c3e50; font-weight: 600;">₹${s.price}</td>
-                    </tr>
-                  `
+                      (service) => `
+                      <tr>
+                        <td style="padding:8px 0;">${service.title}</td>
+                        <td style="padding:8px 0;">${service.bookingDate}</td>
+                        <td style="padding:8px 0;">${service.slotTime}</td>
+                        <td style="padding:8px 0; text-align:right;">₹${service.price}</td>
+                      </tr>
+                    `
                     )
                     .join("")}
-                </table>
+                </tbody>
+              </table>
 
-                <p style="margin-top: 14px; font-size: 14px; color: #546e7a;">
-                  <strong style="color: #2c3e50;">Service Provider:</strong> ${businessName}
-                </p>
+              <p style="margin:16px 0 0; font-size:13px; color:#4b5563;">
+                <strong>Service Provider:</strong> ${businessName}
+              </p>
 
-                <!-- CTA Button -->
-                <div style="text-align: center; margin-top: 32px;">
-                  <a href="${customerPortalUrl}" class="cta-button" style="display: inline-block; background: linear-gradient(135deg, #d32f2f 0%, #c62828 100%); color: white; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; text-decoration: none; border: none; cursor: pointer;">
-                    Retry Payment →
-                  </a>
-                </div>
+              <!-- Support -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                If the issue persists, please contact our support team for assistance.
+              </p>
 
-                <!-- Support Section -->
-                <div style="background-color: #f8f9fa; padding: 16px; border-radius: 6px; margin-top: 28px;">
-                  <p style="margin: 0 0 8px 0; font-size: 13px; color: #90a4ae; font-weight: 600;">HAVING ISSUES?</p>
-                  <p style="margin: 0; font-size: 13px; color: #546e7a; line-height: 1.6;">
-                    If the issue persists, please reach out to our support team and we'll help you resolve it.
-                  </p>
-                </div>
+              <p style="margin:6px 0 0; font-size:13px;">
+                <a href="mailto:hsm@supportEmail.com" style="color:#2563eb; text-decoration:none;">
+                  hsm@supportEmail.com
+                </a>
+              </p>
 
-                <!-- Footer -->
-                <p class="footer-text" style="margin-top: 28px; font-size: 12px; color: #90a4ae; text-align: center; line-height: 1.6;">
-                  <a href="mailto:support@example.com" style="color: #d32f2f; text-decoration: none; font-weight: 600;">Contact Support</a>
-                </p>
-              </td>
-            </tr>
-            
-            <!-- Footer Divider -->
-            <tr>
-              <td style="height: 1px; background-color: #eceff1;"></td>
-            </tr>
-            
-            <!-- Branding Footer -->
-            <tr>
-              <td style="padding: 16px 28px; text-align: center; background-color: #fafbfc;">
-                <p style="margin: 0; font-size: 12px; color: #90a4ae;">
-                  © 2024 ${businessName}. All rights reserved.
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-  </html>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+              © ${new Date().getFullYear()} ${businessName}. All rights reserved.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
   `;
 }
 
+/* ---------------- PROVIDER SUBSCRIPTION SUCCESS ---------------- */
 function providerSubscriptionSuccessEmailTemplate({
   providerName,
   businessName,
@@ -330,153 +410,139 @@ function providerSubscriptionSuccessEmailTemplate({
   subscriptionStart,
   subscriptionEnd,
 }) {
+    const subStart = new Date(subscriptionStart).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+    const subEnd = new Date(subscriptionEnd).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
   return `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Subscription Activated</title>
-    <style type="text/css">
-      @media only screen and (max-width: 600px) {
-        .container { width: 100% !important; }
-        .header { padding: 16px !important; font-size: 20px !important; }
-        .content { padding: 18px !important; }
-        .cta-button {
-          width: 100% !important;
-          padding: 14px !important;
-          box-sizing: border-box !important;
-        }
-        .footer-text { font-size: 11px !important; }
-      }
-    </style>
-  </head>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Subscription Activated</title>
+</head>
 
-  <body style="margin:0; padding:0; font-family:'Segoe UI', Roboto, Arial, sans-serif; background-color:#f0f2f5;">
-    <table role="presentation" style="width:100%; background-color:#f0f2f5; border-collapse:collapse;">
-      <tr>
-        <td style="padding:30px 16px;">
-          
-          <!-- Main Container -->
-          <table role="presentation" class="container"
-            style="width:100%; max-width:600px; margin:0 auto; background:#ffffff;
-            border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow:hidden;">
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
-            <!-- Header -->
-            <tr>
-              <td class="header"
-                style="background:linear-gradient(135deg,#0f2027 0%,#203a43 50%,#2c5364 100%);
-                padding:28px 24px; text-align:center; color:#ffffff;
-                font-size:24px; font-weight:700;">
-                🎉 Subscription Activated
-              </td>
-            </tr>
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
+    <tr>
+      <td style="padding:24px;">
 
-            <!-- Content -->
-            <tr>
-              <td class="content" style="padding:32px 28px;">
+        <!-- Main Container -->
+        <table width="100%" cellpadding="0" cellspacing="0"
+          style="max-width:720px; margin:0 auto; background-color:#ffffff; border-collapse:collapse;">
 
-                <!-- Greeting -->
-                <p style="margin:0 0 8px; font-size:16px; color:#2c3e50; font-weight:600;">
-                  Hi ${providerName},
-                </p>
+          <!-- Header -->
+          <tr>
+            <td style="padding:20px 24px; border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0; font-size:18px; font-weight:600;">
+                ${businessName}
+              </h1>
+            </td>
+          </tr>
 
-                <p style="margin:0 0 24px; font-size:14px; line-height:1.6; color:#546e7a;">
-                  Thank you for subscribing to <strong>${planName}</strong>.
-                  Your subscription has been successfully activated for
-                  <strong>${businessName}</strong>.
-                </p>
+          <!-- Content -->
+          <tr>
+            <td style="padding:24px; font-size:14px; line-height:1.6;">
 
-                <!-- Subscription Summary -->
-                <div style="background:#f8f9fa; padding:20px; border-radius:6px; margin:24px 0;">
-                  <table role="presentation" style="width:100%; border-collapse:collapse;">
+              <p style="margin:0 0 12px;">
+                Hi <strong>${providerName}</strong>,
+              </p>
 
-                    <tr>
-                      <td style="padding:8px 0; font-size:13px; color:#90a4ae;">Plan</td>
-                      <td style="text-align:right; padding:8px 0; font-size:13px; font-weight:600; color:#2c3e50;">
-                        ${planName}
-                      </td>
-                    </tr>
+              <p style="margin:0 0 16px;">
+                Your subscription has been successfully activated.
+                The <strong>${planName}</strong> plan is now active for your business.
+              </p>
 
-                    <tr>
-                      <td style="padding:8px 0; font-size:13px; color:#90a4ae;">Subscription ID</td>
-                      <td style="text-align:right; padding:8px 0; font-size:12px; font-family:'Courier New', monospace; color:#2c3e50;">
-                        ${subscriptionId}
-                      </td>
-                    </tr>
+              <!-- Subscription Summary -->
+              <h3 style="margin:24px 0 12px; font-size:15px; font-weight:600;">
+                Subscription Details
+              </h3>
 
-                    <tr style="border-top:1px solid #e0e0e0;">
-                      <td style="padding:12px 0; font-size:13px; color:#90a4ae;">Amount Paid</td>
-                      <td style="text-align:right; padding:12px 0; font-size:18px; font-weight:700; color:#0f2027;">
-                        ₹${planAmount}
-                      </td>
-                    </tr>
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="border-collapse:collapse; font-size:13px;">
+                <tr>
+                  <td style="padding:8px 0; color:#6b7280;">Plan Name</td>
+                  <td style="padding:8px 0; text-align:right; font-weight:600;">
+                    ${planName}
+                  </td>
+                </tr>
 
-                    <tr>
-                      <td style="padding:8px 0; font-size:13px; color:#90a4ae;">Billing Period</td>
-                      <td style="text-align:right; padding:8px 0; font-size:13px; font-weight:600; color:#2c3e50;">
-                        ${subscriptionStart} → ${subscriptionEnd}
-                      </td>
-                    </tr>
+                <tr>
+                  <td style="padding:8px 0; color:#6b7280;">Subscription ID</td>
+                  <td style="padding:8px 0; text-align:right; font-family:monospace;">
+                    ${subscriptionId}
+                  </td>
+                </tr>
 
-                  </table>
-                </div>
+                <tr>
+                  <td style="padding:8px 0; color:#6b7280;">Billing Period</td>
+                  <td style="padding:8px 0; text-align:right;">
+                    ${subStart} – ${subEnd}
+                  </td>
+                </tr>
 
-                <!-- Invoice Info -->
-                <p style="margin:24px 0; font-size:14px; line-height:1.6; color:#546e7a;">
-                  Your invoice has been attached to this email for your records.
-                  You can also view your subscription history and invoices anytime from your billing portal.
-                </p>
+                <tr>
+                  <td style="padding:12px 0; color:#6b7280; border-top:1px solid #e5e7eb;">
+                    Amount Paid
+                  </td>
+                  <td style="padding:12px 0; text-align:right; font-size:15px; font-weight:600; border-top:1px solid #e5e7eb;">
+                    ₹${planAmount}
+                  </td>
+                </tr>
+              </table>
 
-                <!-- CTA -->
-                <div style="text-align:center; margin:32px 0;">
-                  <a href="http://localhost:3000/provider/dashboard/pricing"
-                    class="cta-button"
-                    style="display:inline-block; background:#2c5364; color:#ffffff;
-                    padding:14px 28px; border-radius:6px; text-decoration:none;
-                    font-size:14px; font-weight:600;">
-                    View Billing & Invoices
-                  </a>
-                </div>
+              <!-- Invoice Note -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                An invoice for this subscription has been attached to this email for your records.
+                You can access all your invoices and billing history from your provider dashboard.
+              </p>
 
-                <!-- Support -->
-                <p class="footer-text" style="margin-top:32px; font-size:12px; color:#90a4ae; text-align:center; line-height:1.6;">
-                  Have questions about your subscription?<br />
-                  <a href="mailto:support@hsmgmail.com"
-                    style="color:#2c5364; text-decoration:none; font-weight:600;">
-                    Contact Provider Support
-                  </a>
-                </p>
+              <!-- Support -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                If you have questions about your subscription or billing,
+                please contact provider support.
+              </p>
 
-              </td>
-            </tr>
+              <p style="margin:6px 0 0; font-size:13px;">
+                <a href="mailto:support@hsmgmail.com"
+                   style="color:#2563eb; text-decoration:none;">
+                  support@hsmgmail.com
+                </a>
+              </p>
 
-            <!-- Footer -->
-            <tr>
-              <td style="height:1px; background:#eceff1;"></td>
-            </tr>
+            </td>
+          </tr>
 
-            <tr>
-              <td style="padding:16px 28px; text-align:center; background:#fafbfc;">
-                <p style="margin:0; font-size:12px; color:#90a4ae;">
-                  © ${new Date().getFullYear()} ${businessName}. All rights reserved.
-                </p>
-              </td>
-            </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+              © ${new Date().getFullYear()} ${businessName}. All rights reserved.
+            </td>
+          </tr>
 
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-  </html>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
   `;
 }
+
 
 module.exports = {
   welcomeUserTamplate,
   forgotPasswordTamplate,
   bookingSuccessEmailTemplate,
   bookingFailedEmailTemplate,
-  providerSubscriptionSuccessEmailTemplate
+  providerSubscriptionSuccessEmailTemplate,
 };

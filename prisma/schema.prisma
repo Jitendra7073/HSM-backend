@@ -29,6 +29,7 @@ enum AddressType {
  */
 enum BookingStatus {
   PENDING
+  PENDING_PAYMENT
   CONFIRMED
   COMPLETED
   CANCELLED
@@ -111,7 +112,6 @@ model BusinessProfile {
   slots    Slot[]
   carts    Cart[]
   Booking  Booking[]
-  Teams    Teams[]
 
   @@index([businessName, contactEmail])
 }
@@ -165,6 +165,7 @@ model Service {
   description       String?
   durationInMinutes Int
   price             Int
+  totalBookingAllow Int
   currency          String  @default("INR")
   isActive          Boolean @default(true)
 
@@ -189,28 +190,7 @@ model Service {
 
   carts    Cart[]
   bookings Booking[]
-  teams    Teams[]
   feedback Feedback[]
-}
-
-/**
- * ---------------- TEAM MEMBERS MODEL ----------------
- */
-model Teams {
-  id          String @id @default(uuid())
-  name        String
-  description String
-  email       String
-  phone       String
-  role        String
-  status      String
-
-  businessProfileId String
-  businessProfile   BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
-
-bookings Booking[]
-  serviceId String
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 }
 
 /**
@@ -239,7 +219,6 @@ model Booking {
   serviceId         String
   businessProfileId String
   slotId            String?
-  partnerId         String?
   totalAmount       Int
   paymentStatus     PaymentStatus @default(PENDING)
   bookingStatus     BookingStatus @default(PENDING)
@@ -252,7 +231,6 @@ model Booking {
   service         Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id])
   slot            Slot?           @relation(fields: [slotId], references: [id])
-  partner         Teams? @relation(fields: [partnerId],references: [id])
 }
 
 /**

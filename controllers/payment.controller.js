@@ -7,61 +7,133 @@ const customerPayment = async (req, res) => {
 
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
     const { cartItems, addressId } = req.body;
 
+    /* ---------- BASIC VALIDATION ---------- */
     if (!cartItems || cartItems.length === 0)
       return res.status(400).json({ msg: "Cart is empty" });
 
     if (!addressId) return res.status(400).json({ msg: "Address required" });
 
+    /* ---------- FETCH CART ---------- */
     const dbCart = await prisma.cart.findMany({
       where: { id: { in: cartItems }, userId },
-      include: { service: true, business: true },
-    });
-
-    const isAlreadyBookedByUser = await prisma.booking.findFirst({
-      where: {
-        userId,
-        serviceId: { in: dbCart.map((c) => c.service.id) },
-        slotId: { in: dbCart.map((c) => c.slotId) },
-        date: { in: dbCart.map((c) => c.date) },
+      include: {
+        service: true,
+        business: true,
+        slot: true,
       },
     });
 
-    if (isAlreadyBookedByUser)
-      return res.status(400).json({
-        msg: `You have already booked a slot for ${isAlreadyBookedByUser.date.split("T")[0]}`,
-      });
+    if (!dbCart.length)
+      return res.status(400).json({ msg: "Invalid cart items" });
 
+    /* ---------- SAME BUSINESS CHECK ---------- */
     const businessIds = [...new Set(dbCart.map((c) => c.business.id))];
     if (businessIds.length > 1)
-      return res
-        .status(400)
-        .json({ msg: "Only same-business services allowed" });
+      return res.status(400).json({
+        msg: "Only same-business services allowed",
+      });
 
-    const totalAmount = dbCart.reduce((s, c) => s + c.service.price, 0);
+    /* ---------- DUPLICATE BOOKING CHECK ---------- */
+    const alreadyBooked = await prisma.booking.findFirst({
+      where: {
+        userId,
+        OR: dbCart.map((item) => ({
+          serviceId: item.serviceId,
+          slotId: item.slotId,
+          date: item.date,
+          bookingStatus: {
+            in: ["CONFIRMED", "PENDING_PAYMENT"],
+          },
+        })),
+      },
+    });
 
+    if (alreadyBooked)
+      return res.status(400).json({
+        msg: `You already booked a slot for ${alreadyBooked.date}`,
+      });
+
+    /* =====================================================
+       SLOT RESERVATION 
+       ===================================================== */
+    const reservedBookings = await prisma.$transaction(async (tx) => {
+      const reservations = [];
+
+      for (const item of dbCart) {
+        //  Get service limit
+        const service = await tx.service.findUnique({
+          where: { id: item.serviceId },
+          select: { totalBookingAllow: true },
+        });
+
+        //  Count existing bookings
+        const count = await tx.booking.count({
+          where: {
+            serviceId: item.serviceId,
+            slotId: item.slotId,
+            date: item.date,
+            bookingStatus: {
+              in: ["CONFIRMED", "PENDING_PAYMENT"],
+            },
+          },
+        });
+
+        //  STOP HERE IF SLOT FULL
+        if (count >= service.totalBookingAllow) {
+          return res.status(401).json({
+            success: false,
+            msg: `Slot ${item.slot?.time} is full for ${item.service.name}`,
+          });
+        }
+
+        //  TEMP RESERVE SLOT
+        const booking = await tx.booking.create({
+          data: {
+            userId,
+            serviceId: item.serviceId,
+            businessProfileId: item.business.id,
+            slotId: item.slotId,
+            date: item.date,
+            bookingStatus: "PENDING_PAYMENT",
+            paymentStatus: "PENDING",
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
+          },
+        });
+
+        reservations.push(booking);
+      }
+
+      return reservations;
+    });
+
+    /* ---------- CALCULATE TOTAL ---------- */
+    const totalAmount = dbCart.reduce(
+      (sum, item) => sum + item.service.price,
+      0
+    );
+
+    /* ---------- CREATE PAYMENT RECORD ---------- */
     const paymentRecord = await prisma.customerPayment.create({
       data: {
         userId,
         addressId,
         amount: totalAmount,
         status: "PENDING",
-        bookingIds: JSON.stringify([]),
+        bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
       },
     });
 
+    /* ---------- STRIPE CHECKOUT ---------- */
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-
       metadata: {
         userId,
         addressId,
         paymentId: paymentRecord.id,
-        cartItems: JSON.stringify(cartItems),
+        bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
       },
-
       line_items: dbCart.map((item) => ({
         price_data: {
           currency: "inr",
@@ -70,17 +142,21 @@ const customerPayment = async (req, res) => {
         },
         quantity: 1,
       })),
-
       success_url: `${process.env.FRONTEND_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: process.env.FRONTEND_CANCEL_URL,
     });
 
     return res.json({ url: session.url });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ msg: "Payment failed" });
+    console.error(err.message);
+
+    // ❌ THIS IS WHERE FLOW STOPS IF SLOT IS FULL
+    return res.status(400).json({
+      msg: err.message || "Payment failed",
+    });
   }
 };
+
 /* ---------------- PROVIDER SUBSCRIPTION CHECKOUT  ---------------- */
 const providerSubscriptionCheckout = async (req, res) => {
   const userId = req.user.id;
@@ -138,7 +214,6 @@ const providerSubscriptionCheckout = async (req, res) => {
     });
     return res.status(200).json({ url: session.url });
   } catch (err) {
-    console.error("Provider subscription error:", err);
     return res
       .status(500)
       .json({ msg: "Failed to create subscription checkout" });
@@ -176,7 +251,6 @@ const seedProviderSubscriptionPlans = async (req, res) => {
       plans,
     });
   } catch (error) {
-    console.error("Seed plans error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to create provider subscription plans",
@@ -187,6 +261,5 @@ const seedProviderSubscriptionPlans = async (req, res) => {
 module.exports = {
   customerPayment,
   providerSubscriptionCheckout,
-  seedProviderSubscriptionPlans
-
+  seedProviderSubscriptionPlans,
 };

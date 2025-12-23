@@ -50,7 +50,6 @@ class NotificationService {
       } catch (err) {
         if (err.code === "app/invalid-credential") {
           fcmDisabled = true;
-          console.error("FCM disabled: invalid Firebase credentials");
           return;
         }
         throw err;
@@ -80,7 +79,6 @@ class NotificationService {
       return response;
 
     } catch (error) {
-      console.error("Notification service error:", error);
     }
   }
 }
@@ -89,7 +87,6 @@ class NotificationService {
 async function handleFCMError(err, tokens = []) {
   if (err.code === "app/invalid-credential") {
     fcmDisabled = true;
-    console.error("Firebase Admin credential invalid. FCM disabled.");
     return;
   }
   if (
@@ -102,7 +99,6 @@ async function handleFCMError(err, tokens = []) {
     return;
   }
 
-  console.error("FCM send error:", err.code || err.message);
 }
 
 /* ---------------- HELPER: STRINGIFY DATA ---------------- */

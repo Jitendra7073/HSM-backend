@@ -3,7 +3,6 @@ const moment = require("moment");
 
 /* ---------------- GENERATE PDF FOR PROVIDER SUBSCRIPTION INVOICE ---------------- */
 function generateProviderSubscriptionInvoicePDF(data) {
-  console.log("Provider Subscription Invoice Data", data);
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: "A4" });

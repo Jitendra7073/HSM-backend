@@ -3,7 +3,6 @@ const moment = require("moment");
 
 /* ---------------- GENERATE PDF FOR BOOKING INVOICE ---------------- */
 function generateInvoicePDF(data) {
-  console.log("Invoice Data", data);
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: "A4" });

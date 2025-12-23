@@ -180,11 +180,20 @@ const handleCheckoutCompleted = async (session) => {
 
     await sendMail({
       email: user.email,
-      subject: "Booking Confirmed 🎉",
+      subject: "Booking Confirmed",
       template: bookingSuccessEmailTemplate({
         userName: user.name,
         bookingIds: result.map((b) => b.id),
         totalAmount: cart.reduce((sum, c) => sum + c.service.price, 0),
+        paymentId,
+        paymentDate: Date.now(),
+        services: cart.map((c) => ({
+          title: c.service.name,
+          price: c.service.price,
+          bookingDate: c.date,
+          slotTime: c.slot ? c.slot.time : "Not Assigned",
+        })),
+        businessName: cart[0].business.businessName,
       }),
       attachments: [
         {
@@ -193,7 +202,6 @@ const handleCheckoutCompleted = async (session) => {
         },
       ],
     });
-
   } catch (err) {
     console.error("Failed to generate/send invoice email:", err);
   }
@@ -261,20 +269,17 @@ const handleProviderSubscriptionCompleted = async (session) => {
     session.subscription
   );
 
-
   const priceItem = subscription.items?.data?.[0];
   if (!priceItem?.price?.id) {
     console.error("Price ID not found in subscription");
     return;
   }
 
-
   const plan = await prisma.providerSubscriptionPlan.findFirst({
     where: {
       stripePriceId: priceItem.price.id,
     },
   });
-
 
   if (!plan) {
     console.error("Plan not found for price:", priceItem.price.id);
@@ -286,7 +291,6 @@ const handleProviderSubscriptionCompleted = async (session) => {
   const periodStartUnix =
     subscription.current_period_start ?? subscription.created;
 
-
   const periodEndUnix =
     subscription.current_period_end ??
     subscription.created +
@@ -294,17 +298,8 @@ const handleProviderSubscriptionCompleted = async (session) => {
         ? 365 * 24 * 60 * 60
         : 30 * 24 * 60 * 60);
 
-  
   const currentPeriodStart = new Date(periodStartUnix * 1000);
   const currentPeriodEnd = new Date(periodEndUnix * 1000);
-
-  if (isNaN(currentPeriodStart) || isNaN(currentPeriodEnd)) {
-    console.error("Invalid subscription dates", {
-      currentPeriodStart,
-      currentPeriodEnd,
-    });
-    return;
-  }
 
   /* ----------------------- UPSERT ----------------------- */
   await prisma.ProviderSubscription.upsert({
@@ -325,10 +320,8 @@ const handleProviderSubscriptionCompleted = async (session) => {
     },
   });
 
-
   /* ---------------- EMAIL ---------------- */
   try {
-
     const invoiceData = {
       business: {
         email: business.contactEmail,
@@ -383,8 +376,6 @@ const handleProviderSubscriptionCompleted = async (session) => {
         },
       ],
     });
-
-    console.log("Invoice email sent to Provider:", business.contactEmail);
   } catch (err) {
     console.error("Failed to generate/send invoice email:", err);
   }
@@ -405,8 +396,10 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
 /* ------------------------- CUSTOMER PAYMENT FAILED ------------------------- */
 
 const handlePaymentFailed = async (intent) => {
-  const { userId, paymentId } = intent.metadata || {};
-  if (!userId || !paymentId) return;
+  const { userId, addressId, paymentId, cartItems } = session.metadata || {};
+  if (!userId || !addressId || !paymentId || !cartItems) return;
+
+  const cartIds = JSON.parse(cartItems);
 
   await prisma.customerPayment.update({
     where: { id: paymentId },
@@ -416,11 +409,34 @@ const handlePaymentFailed = async (intent) => {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return;
 
+  const cart = await prisma.cart.findMany({
+    where: { id: { in: cartIds }, userId },
+    include: {
+      service: {
+        include: {
+          businessProfile: {
+            include: { user: true },
+          },
+        },
+      },
+      slot: true,
+      business: true,
+    },
+  });
+  if (!cart.length) return;
+
   await sendMail({
     email: user.email,
     subject: "Payment Failed",
     template: bookingFailedEmailTemplate({
       userName: user.name,
+      services: cart.map((c) => ({
+        title: c.service.name,
+        price: c.service.price,
+        bookingDate: c.date,
+        slotTime: c.slot ? c.slot.time : "Not Assigned",
+      })),
+      businessName: cart[0].business.businessName,
     }),
   });
 };

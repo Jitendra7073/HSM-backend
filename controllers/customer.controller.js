@@ -74,7 +74,6 @@ const getAllProviders = async (req, res) => {
       providers,
     });
   } catch (err) {
-    console.error("Get providers error:", err);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch providers.",
@@ -143,7 +142,7 @@ const getProviderById = async (req, res) => {
       provider,
     });
   } catch (err) {
-    console.error(err);
+    
     return res
       .status(500)
       .json({ success: false, msg: "Server Error: Could not fetch provider." });
@@ -225,7 +224,7 @@ const bookSlot = async (req, res) => {
 
     return res.status(201).json(result);
   } catch (err) {
-    console.error(err);
+    
     return res.status(500).json({
       success: false,
       msg: err.message || "Could not book slot.",
@@ -289,7 +288,7 @@ const getCustomerBookings = async (req, res) => {
       bookings: formatted,
     });
   } catch (err) {
-    console.error(err);
+    
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch bookings." });
@@ -350,7 +349,6 @@ const cancelBooking = async (req, res) => {
       .status(200)
       .json({ success: true, msg: "Booking cancelled successfully." });
   } catch (err) {
-    console.error("Cancel Booking Error:", err);
 
     return res
       .status(500)
@@ -369,7 +367,7 @@ const getAllServices = async (req, res) => {
       services,
     });
   } catch (err) {
-    console.error(err);
+    
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch services." });
@@ -434,7 +432,7 @@ const getCart = async (req, res) => {
       cart,
     });
   } catch (err) {
-    console.error(err);
+    
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch cart." });
@@ -514,7 +512,6 @@ const addToCart = async (req, res) => {
       cart: added,
     });
   } catch (err) {
-    console.error("ADD TO CART ERROR:", err);
     return res.status(500).json({
       success: false,
       msg: "Internal server error while adding to cart.",
@@ -554,7 +551,6 @@ const removeItemFromCart = async (req, res) => {
       msg: "Item removed from your cart.",
     });
   } catch (error) {
-    console.error("Remove cart error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not remove item from cart",
@@ -584,7 +580,6 @@ const getAllFeedback = async (req, res) => {
       feedbacks,
     });
   } catch (error) {
-    console.error("Get feedbacks Error:", error);
 
     return res.status(500).json({
       success: false,
@@ -685,7 +680,6 @@ const giveFeedback = async (req, res) => {
       feedback,
     });
   } catch (error) {
-    console.error("GiveFeedback Error:", error);
 
     return res.status(500).json({
       success: false,
@@ -707,13 +701,52 @@ const getAllCustomerReceivedNotifications = async (req, res) => {
       notifications,
     });
   } catch (error) {
-    console.error("Get Notifications Error:", error);
     return res.status(500).json({
       success: false,
       msg: "Unable to fetch the notification",
     });
   }
 };
+
+/* ---------------- UPDATE NOTIFICATION STATUS ---------------- */
+const markNotificationAsRead = async(req,res) =>{
+  const {notificationId} = req.params;
+  try {
+    const notification = await prisma.notification.findUnique({
+      where:{id:notificationId}
+    })
+    if(!notification){
+      return res.status(404).json({
+        success:false,
+        msg:"We could not found this Notification!"
+      })
+    }
+
+    const markAsRead = await prisma.notification.update({
+      where:{id:notificationId},
+      data:{
+        read:true
+      }
+    })
+    if(!markAsRead){
+      return res.status(500).json({
+        success:false,
+        msg:"Something went wrong!"
+      })
+    }
+    return res.status(200).json({
+      success:true,
+      msg:"Mark as read."
+    })
+
+  } catch (error) {
+    return res.status(500).json({
+      success:false,
+      msg:"Error: During updating the status of notification."
+    })
+    
+  }
+}
 
 module.exports = {
   getAllProviders,
@@ -727,4 +760,5 @@ module.exports = {
   getAllFeedback,
   giveFeedback,
   getAllCustomerReceivedNotifications,
+  markNotificationAsRead
 };
