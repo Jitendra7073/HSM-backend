@@ -1,0 +1,390 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * ---------------- USER ROLE ENUMS ----------------
+ */
+enum Role {
+  customer
+  provider
+}
+
+/**
+ * ---------------- ADDRESS TYPE ENUMS ----------------
+ */
+enum AddressType {
+  HOME
+  OFFICE
+  OTHER
+}
+
+/**
+ * ---------------- BOOKING STATUS ENUMS ----------------
+ */
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+/**
+ * ---------------- PAYMENT STATUS ENUMS ----------------
+ */
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+/**
+ * ---------------- USER MODEL ----------------
+ */
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  mobile    String
+  password  String
+  role      Role     @default(customer)
+  createdAt DateTime @default(now())
+
+  // Relations
+  addresses                  Address[]
+  businessProfile            BusinessProfile?
+  bookings                   Booking[]
+  feedbacks                  Feedback[]
+  Businesscategory           Businesscategory[]
+  carts                      Cart[]
+  CustomerPayment            CustomerPayment[]
+  FCMToken                   FCMToken[]
+  receivedNotifications      Notification[]            @relation("NotificationReceiver")
+  sentNotifications          Notification[]            @relation("NotificationSender")
+  providerSubscription       ProviderSubscription?
+
+  @@index([email])
+}
+
+/**
+ * ---------------- RESET TOKEN MODEL ----------------
+ */
+model resetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+}
+
+/**
+ * ---------------- BUSINESS PROFILE MODEL ----------------
+ */
+model BusinessProfile {
+  id String @id @default(uuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Business Identity
+  businessName String
+
+  businessCategoryId String
+  category           Businesscategory @relation(fields: [businessCategoryId], references: [id])
+
+  // Contact & Communication
+  contactEmail String
+  phoneNumber  String
+  websiteURL   String?
+  socialLinks  String?
+
+  // Business Status
+  isActive Boolean @default(true)
+
+  // Relations
+  services Service[]
+  slots    Slot[]
+  carts    Cart[]
+  Booking  Booking[]
+  Teams    Teams[]
+
+  @@index([businessName, contactEmail])
+}
+
+/**
+ * ---------------- BUSINESS CATEGORY MODEL ----------------
+ */
+model Businesscategory {
+  id          String @id @default(uuid())
+  name        String
+  description String
+
+  // User Relation
+  createdBy String @default("admin")
+  user      User   @relation(fields: [createdBy], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessProfiles BusinessProfile[]
+  services         Service[]
+}
+
+/**
+ * ---------------- ADDRESS MODEL ----------------
+ */
+model Address {
+  id         String      @id @default(uuid())
+  street     String
+  city       String
+  state      String
+  postalCode String
+  country    String
+  type       AddressType @default(HOME)
+  landmark   String      @default("N/A")
+
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  Booking         Booking[]
+  CustomerPayment CustomerPayment[]
+}
+
+/**
+ * ---------------- SERVICE MODEL ----------------
+ */
+model Service {
+  id String @id @default(cuid())
+
+  // Basic Info
+  name              String
+  description       String?
+  durationInMinutes Int
+  price             Int
+  currency          String  @default("INR")
+  isActive          Boolean @default(true)
+
+  // Media & Display
+  coverImage String?
+  images     String[]
+
+  // Rating & Reviews
+  averageRating Float? @default(0)
+  reviewCount   Int    @default(0)
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  businessProfileId String
+  businessProfile   BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  businessCategoryId String
+  category           Businesscategory @relation(fields: [businessCategoryId], references: [id])
+
+  carts    Cart[]
+  bookings Booking[]
+  teams    Teams[]
+  feedback Feedback[]
+}
+
+/**
+ * ---------------- TEAM MEMBERS MODEL ----------------
+ */
+model Teams {
+  id          String @id @default(uuid())
+  name        String
+  description String
+  email       String
+  phone       String
+  role        String
+  status      String
+
+  businessProfileId String
+  businessProfile   BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+bookings Booking[]
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * ---------------- SLOT MODEL ----------------
+ */
+model Slot {
+  id   String @id @default(uuid())
+  time String
+
+  // Relation to Business Profile
+  businessProfileId String?
+  businessProfile   BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  // Relation to bookings
+  bookings Booking[]
+  carts    Cart[]
+}
+
+/**
+ * ---------------- BOOKING MODEL ----------------
+ */
+model Booking {
+  id                String        @id @default(uuid())
+  userId            String
+  addressId         String
+  serviceId         String
+  businessProfileId String
+  slotId            String?
+  partnerId         String?
+  totalAmount       Int
+  paymentStatus     PaymentStatus @default(PENDING)
+  bookingStatus     BookingStatus @default(PENDING)
+  date              String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address         Address         @relation(fields: [addressId], references: [id], onDelete: Cascade)
+  service         Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id])
+  slot            Slot?           @relation(fields: [slotId], references: [id])
+  partner         Teams? @relation(fields: [partnerId],references: [id])
+}
+
+/**
+ * ---------------- PAYMENT MODEL ----------------
+ */
+model CustomerPayment {
+  id              String        @id @default(uuid())
+  userId          String
+  addressId       String
+  amount          Int
+  status          PaymentStatus @default(PENDING)
+  bookingIds      String
+  stripeSessionId String?
+  paymentIntentId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address Address @relation(fields: [addressId], references: [id])
+}
+
+/**
+ * ---------------- CUSTOEMR CART MODEL ----------------
+ */
+model Cart {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  businessId String
+  business   BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  slotId String
+  slot   Slot   @relation(fields: [slotId], references: [id], onDelete: Cascade)
+
+  date String
+
+  addedAt DateTime @default(now())
+}
+
+/**
+ * ---------------- FCM TOKEN MODEL ----------------
+ */
+model FCMToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * ---------------- NOTIFICATION MODEL ----------------
+ */
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  receiverId String
+  receiver   User   @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  senderId String
+  sender   User   @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * ---------------- CUSTOMER FEEDBACK MODEL ----------------
+ */
+model Feedback {
+  id          String   @id @default(uuid())
+  username    String
+  rating      Int
+  comment     String
+  servicename String
+  approved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  serviceId String  @unique
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+}
+
+/**
+ * ---------------- PROVIDER SUBSCRIPTION PLAN ----------------
+ */
+model ProviderSubscriptionPlan {
+  id String @id @default(uuid())
+
+  name          String // BASIC | PRO
+  price         Int
+  currency      String @default("INR")
+  interval      String // month | year
+  stripePriceId String @unique
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions ProviderSubscription[]
+}
+
+/**
+ * ---------------- PROVIDER SUBSCRIPTION ----------------
+ */
+model ProviderSubscription {
+  id String @id @default(uuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  planId String
+  plan   ProviderSubscriptionPlan @relation(fields: [planId], references: [id])
+
+  stripeCustomerId     String
+  stripeSubscriptionId String @unique
+
+  status String // active | canceled | past_due | incomplete
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
