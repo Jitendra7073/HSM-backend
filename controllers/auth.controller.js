@@ -141,7 +141,7 @@ const forgotPassword = async (req, res) => {
 
 /* ---------------- RESET PASSWORD ---------------- */
 const resetPassword = async (req, res) => {
-  const { token } = req.params;
+  const { token } = req.query;
   const { error, value } = ResetPasswordSchema.validate(req.body);
   if (error)
     return res

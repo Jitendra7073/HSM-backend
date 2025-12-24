@@ -13,7 +13,7 @@ route.post("/login", AuthController.login);
 route.post("/forgot-password", AuthController.forgotPassword);
 
 /* ---------------- RESET PASSWORD ROUTE ---------------- */
-route.post("/reset-password/:token", AuthController.resetPassword);
+route.post("/reset-password", AuthController.resetPassword);
 
 /* ---------------- LOGOUT ROUTE ---------------- */
 route.post("/logout", AuthController.logout);

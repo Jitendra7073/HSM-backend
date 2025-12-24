@@ -60,7 +60,7 @@ function welcomeUserTamplate(userName) {
 
 /* ---------------- FORGOT PASSWORD ---------------- */
 const forgotPasswordTamplate = (name, token) => {
-  const resetUrl = `http://localhost:3000/auth/reset-password/${token}`;
+  const resetUrl = `http://localhost:3000/auth/reset-password?token=${token}`;
 
   return `
 <!DOCTYPE html>
