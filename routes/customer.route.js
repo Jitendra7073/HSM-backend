@@ -26,12 +26,4 @@ route.get("/all-feedback", CustomerController.getAllFeedback)
 /* ---------------- GIVE FEEDBACK ROUTE ---------------- */
 route.post("/give-feedback", CustomerController.giveFeedback)
 
-/* ---------------- CUSTOMER ALL NOTIFICATIONS---------------- */
-route.get("/notifications", CustomerController.getAllCustomerReceivedNotifications);
-
-/* ---------------- UPDATE NOTIFICATION STATUS ---------------- */
-route.patch("/notification/:notificationId", CustomerController.markNotificationAsRead);
-
-
-
 module.exports = route;

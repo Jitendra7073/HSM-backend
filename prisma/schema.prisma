@@ -223,14 +223,18 @@ model Booking {
   paymentStatus     PaymentStatus @default(PENDING)
   bookingStatus     BookingStatus @default(PENDING)
   date              String
+  isFeedbackProvided  Boolean      @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
+  expiresAt         DateTime?      
 
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   address         Address         @relation(fields: [addressId], references: [id], onDelete: Cascade)
   service         Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id])
   slot            Slot?           @relation(fields: [slotId], references: [id])
+
+  feedback Feedback[]
 }
 
 /**
@@ -315,6 +319,9 @@ model Feedback {
   servicename String
   approved    Boolean  @default(false)
   createdAt   DateTime @default(now())
+
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId],references: [id],onDelete: Cascade)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

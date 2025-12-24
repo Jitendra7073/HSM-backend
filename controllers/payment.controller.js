@@ -10,10 +10,13 @@ const customerPayment = async (req, res) => {
     const { cartItems, addressId } = req.body;
 
     /* ---------- BASIC VALIDATION ---------- */
-    if (!cartItems || cartItems.length === 0)
+    if (!cartItems || cartItems.length === 0) {
       return res.status(400).json({ msg: "Cart is empty" });
+    }
 
-    if (!addressId) return res.status(400).json({ msg: "Address required" });
+    if (!addressId) {
+      return res.status(400).json({ msg: "Address required" });
+    }
 
     /* ---------- FETCH CART ---------- */
     const dbCart = await prisma.cart.findMany({
@@ -25,15 +28,17 @@ const customerPayment = async (req, res) => {
       },
     });
 
-    if (!dbCart.length)
+    if (!dbCart.length) {
       return res.status(400).json({ msg: "Invalid cart items" });
+    }
 
     /* ---------- SAME BUSINESS CHECK ---------- */
     const businessIds = [...new Set(dbCart.map((c) => c.business.id))];
-    if (businessIds.length > 1)
+    if (businessIds.length > 1) {
       return res.status(400).json({
         msg: "Only same-business services allowed",
       });
+    }
 
     /* ---------- DUPLICATE BOOKING CHECK ---------- */
     const alreadyBooked = await prisma.booking.findFirst({
@@ -50,69 +55,94 @@ const customerPayment = async (req, res) => {
       },
     });
 
-    if (alreadyBooked)
+    if (alreadyBooked) {
       return res.status(400).json({
         msg: `You already booked a slot for ${alreadyBooked.date}`,
       });
-
-    /* =====================================================
-       SLOT RESERVATION 
-       ===================================================== */
-    const reservedBookings = await prisma.$transaction(async (tx) => {
-      const reservations = [];
-
-      for (const item of dbCart) {
-        //  Get service limit
-        const service = await tx.service.findUnique({
-          where: { id: item.serviceId },
-          select: { totalBookingAllow: true },
-        });
-
-        //  Count existing bookings
-        const count = await tx.booking.count({
-          where: {
-            serviceId: item.serviceId,
-            slotId: item.slotId,
-            date: item.date,
-            bookingStatus: {
-              in: ["CONFIRMED", "PENDING_PAYMENT"],
-            },
-          },
-        });
-
-        //  STOP HERE IF SLOT FULL
-        if (count >= service.totalBookingAllow) {
-          return res.status(401).json({
-            success: false,
-            msg: `Slot ${item.slot?.time} is full for ${item.service.name}`,
-          });
-        }
-
-        //  TEMP RESERVE SLOT
-        const booking = await tx.booking.create({
-          data: {
-            userId,
-            serviceId: item.serviceId,
-            businessProfileId: item.business.id,
-            slotId: item.slotId,
-            date: item.date,
-            bookingStatus: "PENDING_PAYMENT",
-            paymentStatus: "PENDING",
-            expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
-          },
-        });
-
-        reservations.push(booking);
-      }
-
-      return reservations;
-    });
+    }
 
     /* ---------- CALCULATE TOTAL ---------- */
     const totalAmount = dbCart.reduce(
       (sum, item) => sum + item.service.price,
       0
     );
+
+    /* --------------------------- SLOT RESERVATION WITH LOCKING --------------------------- */
+    let reservedBookings;
+    
+    try {
+      reservedBookings = await prisma.$transaction(
+        async (tx) => {
+          const bookings = [];
+
+          for (const item of dbCart) {
+            // Get service with slot limit
+            const service = await tx.service.findUnique({
+              where: { id: item.serviceId },
+              select: { totalBookingAllow: true },
+            });
+
+            if (!service) {
+              throw new Error(`Service ${item.serviceId} not found`);
+            }
+
+            // Count existing VALID bookings (not expired)
+            const count = await tx.booking.count({
+              where: {
+                serviceId: item.serviceId,
+                slotId: item.slotId,
+                date: item.date,
+                bookingStatus: {
+                  in: ["CONFIRMED", "PENDING_PAYMENT"],
+                },
+                OR: [
+                  { expiresAt: null }, // Confirmed bookings
+                  { expiresAt: { gt: new Date() } }, // Non-expired pending
+                ],
+              },
+            });
+
+            // CHECK IF SLOT IS FULL
+            if (count >= service.totalBookingAllow) {
+              throw new Error(
+                `Slot ${item.slot?.time || "Unknown"} is full for ${item.service.name}`
+              );
+            }
+
+            // Create booking reservation
+            const booking = await tx.booking.create({
+              data: {
+                addressId,
+                userId,
+                serviceId: item.serviceId,
+                businessProfileId: item.business.id,
+                slotId: item.slotId,
+                date: item.date,
+                totalAmount: item.service.price, // Individual amount per booking
+                bookingStatus: "PENDING_PAYMENT",
+                paymentStatus: "PENDING",
+                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
+              },
+            });
+
+            bookings.push(booking);
+          }
+
+          return bookings;
+        },
+        {
+          isolationLevel: "Serializable", // Prevents race conditions
+          timeout: 10000, // 10 second timeout
+        }
+      );
+    } catch (transactionError) {
+      console.error("Slot reservation failed:", transactionError.message);
+      
+      // Return user-friendly error
+      return res.status(409).json({
+        msg: transactionError.message || "Slot reservation failed. Please try again.",
+      });
+    }
 
     /* ---------- CREATE PAYMENT RECORD ---------- */
     const paymentRecord = await prisma.customerPayment.create({
@@ -133,6 +163,7 @@ const customerPayment = async (req, res) => {
         addressId,
         paymentId: paymentRecord.id,
         bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
+        dbCart: JSON.stringify(cartItems), // ✅ Pass cart IDs
       },
       line_items: dbCart.map((item) => ({
         price_data: {
@@ -146,14 +177,35 @@ const customerPayment = async (req, res) => {
       cancel_url: process.env.FRONTEND_CANCEL_URL,
     });
 
-    return res.json({ url: session.url });
-  } catch (err) {
-    console.error(err.message);
-
-    // ❌ THIS IS WHERE FLOW STOPS IF SLOT IS FULL
-    return res.status(400).json({
-      msg: err.message || "Payment failed",
+    return res.json({ 
+      url: session.url,
+      bookingIds: reservedBookings.map(b => b.id),
     });
+    
+  } catch (err) {
+    console.error("Payment initiation error:", err.message);
+    return res.status(500).json({
+      msg: "Payment failed. Please try again.",
+    });
+  }
+};
+
+/* ---------------- CLEANUP EXPIRED BOOKINGS ---------------- */
+const cleanupExpiredBookings = async () => {
+  try {
+    const expired = await prisma.booking.deleteMany({
+      where: {
+        bookingStatus: "PENDING_PAYMENT",
+        expiresAt: {
+          lte: new Date(),
+        },
+      },
+    });
+
+    console.log(`Cleaned up ${expired.count} expired bookings`);
+    return expired.count;
+  } catch (error) {
+    console.error("Cleanup failed:", error);
   }
 };
 
@@ -262,4 +314,5 @@ module.exports = {
   customerPayment,
   providerSubscriptionCheckout,
   seedProviderSubscriptionPlans,
+  cleanupExpiredBookings
 };

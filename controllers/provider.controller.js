@@ -282,7 +282,6 @@ const createService = async (req, res) => {
     abortEarly: false,
   });
 
-  console.log("Values :",value)
   if (error) {
     return res.status(422).json({
       success: false,
@@ -824,9 +823,9 @@ const deleteSlot = async (req, res) => {
 
 /* ---------------- BOOKINGS ---------------- */
 const bookingList = async (req, res) => {
-  try {
+  // try {
     const userId = req.user.id;
-    const { bookingId } = req.query;
+    const { bookingId } = await req.query;
 
     const businessProfile = await prisma.BusinessProfile.findUnique({
       where: { userId },
@@ -857,14 +856,6 @@ const bookingList = async (req, res) => {
           slot: {
             select: {
               time: true,
-            },
-          },
-          partner: {
-            select: {
-              name: true,
-              status: true,
-              email: true,
-              phone: true,
             },
           },
           date: true,
@@ -925,12 +916,12 @@ const bookingList = async (req, res) => {
       count: bookings.length,
       bookings,
     });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      msg: "Server error while fetching bookings.",
-    });
-  }
+  // } catch (error) {
+    // return res.status(500).json({
+    //   success: false,
+    //   msg: "Server error while fetching bookings.",
+    // });
+  // }
 };
 
 const updateBooking = async (req, res) => {

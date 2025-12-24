@@ -115,7 +115,11 @@ const getProviderById = async (req, res) => {
                 averageRating: true,
                 reviewCount: true,
                 isActive: true,
-                feedback: true,
+                feedback: {
+                  where: {
+                    approved: true,
+                  },
+                },
               },
             },
             slots: {
@@ -142,93 +146,9 @@ const getProviderById = async (req, res) => {
       provider,
     });
   } catch (err) {
-    
     return res
       .status(500)
       .json({ success: false, msg: "Server Error: Could not fetch provider." });
-  }
-};
-
-// BOOK SLOT (with row locking)
-const bookSlot = async (req, res) => {
-  const customerId = req.user.id;
-  const { serviceId, slotId } = req.body;
-
-  if (!serviceId || !slotId) {
-    return res.status(400).json({
-      success: false,
-      msg: "Both serviceId and slotId are required.",
-    });
-  }
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      const slotRows = await tx.$queryRaw`
-        SELECT *
-        FROM "Slot"
-        WHERE id = ${slotId} AND "serviceId" = ${serviceId}
-        FOR UPDATE
-      `;
-
-      if (slotRows.length === 0) {
-        return {
-          success: false,
-          msg: "Slot not found for the selected service.",
-        };
-      }
-
-      const slot = slotRows[0];
-
-      if (slot.isBooked) {
-        return { success: false, msg: "This slot is already booked." };
-      }
-
-      const newBooking = await tx.Booking.create({
-        data: {
-          userId: customerId,
-          serviceId: serviceId,
-          slotId: slotId,
-          businessProfileId: slot.businessProfileId,
-        },
-      });
-
-      await tx.Slot.update({
-        where: { id: slotId },
-        data: { isBooked: true, bookedById: customerId },
-      });
-
-      return {
-        success: true,
-        msg: "Slot booked successfully.",
-        newBooking,
-      };
-    });
-
-    if (!result.success) {
-      return res.status(400).json(result);
-    }
-
-    const user = await prisma.user.findUnique({ where: { id: customerId } });
-
-    await sendMail({
-      email: user.email,
-      subject: "Slot Booking Confirmation",
-      template: slotBookingRequestTemplate(
-        user.name,
-        result.newBooking.serviceId,
-        result.newBooking.date,
-        result.newBooking.startTime,
-        result.newBooking.endTime
-      ),
-    });
-
-    return res.status(201).json(result);
-  } catch (err) {
-    
-    return res.status(500).json({
-      success: false,
-      msg: err.message || "Could not book slot.",
-    });
   }
 };
 
@@ -288,7 +208,6 @@ const getCustomerBookings = async (req, res) => {
       bookings: formatted,
     });
   } catch (err) {
-    
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch bookings." });
@@ -329,7 +248,7 @@ const cancelBooking = async (req, res) => {
         updatedAt: new Date(),
       },
     });
-    
+
     await prisma.Slot.update({
       where: { id: booking.slotId },
       data: { isBooked: false, bookedById: null },
@@ -349,7 +268,6 @@ const cancelBooking = async (req, res) => {
       .status(200)
       .json({ success: true, msg: "Booking cancelled successfully." });
   } catch (err) {
-
     return res
       .status(500)
       .json({ success: false, msg: "Could not cancel booking." });
@@ -367,7 +285,6 @@ const getAllServices = async (req, res) => {
       services,
     });
   } catch (err) {
-    
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch services." });
@@ -432,7 +349,6 @@ const getCart = async (req, res) => {
       cart,
     });
   } catch (err) {
-    
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch cart." });
@@ -580,7 +496,6 @@ const getAllFeedback = async (req, res) => {
       feedbacks,
     });
   } catch (error) {
-
     return res.status(500).json({
       success: false,
       msg: "Server error: unable to get your feedbacks!",
@@ -590,7 +505,7 @@ const getAllFeedback = async (req, res) => {
 
 /* ---------------- GIVE FEEDBACK ---------------- */
 const giveFeedback = async (req, res) => {
-  const userId = req.user.id;
+  const userId = req.user?.id;
 
   if (!userId) {
     return res.status(401).json({
@@ -603,6 +518,8 @@ const giveFeedback = async (req, res) => {
     abortEarly: false,
   });
 
+  console.log("values:",value);
+
   if (error) {
     return res.status(422).json({
       success: false,
@@ -610,68 +527,93 @@ const giveFeedback = async (req, res) => {
     });
   }
 
-  const { rating, comment, serviceId } = value;
+  const { rating, comment, bookingId } = value;
 
   try {
-    /* ---------------- USER ---------------- */
-    const user = await prisma.User.findUnique({
-      where: { id: userId },
-    });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        msg: "User not found",
-      });
-    }
-    /* ---------------- SERVICE CHECK ---------------- */
-    const service = await prisma.Service.findUnique({
-      where: { id: serviceId },
+    /* ---------------- USER INFORMATION ---------------- */
+    const user = await prisma.user.findUnique({
+      where:{
+        id:userId
+      }
+    })
+
+    /* ---------------- BOOKING CHECK ---------------- */
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        service: true,
+      },
     });
 
-    if (!service) {
+    if (!booking) {
       return res.status(404).json({
         success: false,
-        msg: "Service not found",
+        msg: "Booking not found",
+      });
+    }
+
+    if (booking.userId !== userId) {
+      return res.status(403).json({
+        success: false,
+        msg: "You are not allowed to give feedback for this booking",
+      });
+    }
+
+    if (booking.bookingStatus !== "COMPLETED") {
+      return res.status(400).json({
+        success: false,
+        msg: "You can give feedback only after service completion",
       });
     }
 
     /* ---------------- DUPLICATE FEEDBACK CHECK ---------------- */
-    const existingFeedback = await prisma.Feedback.findFirst({
-      where: {
-        userId: userId,
-      },
+    const existingFeedback = await prisma.feedback.findUnique({
+      where: { bookingId },
     });
 
     if (existingFeedback) {
       return res.status(409).json({
         success: false,
-        msg: "Feedback already submitted for this service",
+        msg: "Feedback already submitted for this booking",
       });
     }
 
-    /* ---------------- CREATE FEEDBACK ---------------- */
-    const feedback = await prisma.Feedback.create({
-      data: {
-        username: user.name,
-        rating,
-        comment,
-        servicename: service.name,
-        serviceId,
-        userId: userId,
-      },
-    });
+    /* ---------------- TRANSACTION ---------------- */
+    const feedback = await prisma.$transaction(async (tx) => {
+      const feedback = await tx.feedback.create({
+        data: {
+          userId,
+          serviceId: booking.serviceId,
+          bookingId,
+          username:user.name,
+          servicename:booking.service.name,
+          rating,
+          comment,
+        },
+      });
 
-    /* ---------------- UPDATE SERVICE RATING ---------------- */
-    const totalReviews = service.reviewCount + 1;
-    const newAverageRating =
-      (service.averageRating * service.reviewCount + rating) / totalReviews;
+      /* ---------------- UPDATE SERVICE RATING ---------------- */
+      const allRatings = await tx.feedback.aggregate({
+        where: { serviceId: booking.serviceId },
+        _avg: { rating: true },
+        _count: { rating: true },
+      });
 
-    await prisma.Service.update({
-      where: { id: serviceId },
-      data: {
-        reviewCount: totalReviews,
-        averageRating: Number(newAverageRating.toFixed(1)),
-      },
+      await tx.service.update({
+        where: { id: booking.serviceId },
+        data: {
+          averageRating: Number(allRatings._avg.rating.toFixed(1)),
+          reviewCount: allRatings._count.rating,
+        },
+      });
+
+      /* ---------------- MARK BOOKING ---------------- */
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: { isFeedbackProvided: true },
+      });
+
+      return feedback;
     });
 
     return res.status(201).json({
@@ -680,73 +622,13 @@ const giveFeedback = async (req, res) => {
       feedback,
     });
   } catch (error) {
-
+    console.error("Give Feedback Error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server error: unable to save your feedback",
     });
   }
 };
-
-/* ---------------- GET ALL NOTIFICATION ---------------- */
-const getAllCustomerReceivedNotifications = async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const notifications = await prisma.notification.findMany({
-      where: { receiverId: userId, read: false },
-    });
-    return res.status(200).json({
-      success: true,
-      msg: "notification fetched.",
-      notifications,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      msg: "Unable to fetch the notification",
-    });
-  }
-};
-
-/* ---------------- UPDATE NOTIFICATION STATUS ---------------- */
-const markNotificationAsRead = async(req,res) =>{
-  const {notificationId} = req.params;
-  try {
-    const notification = await prisma.notification.findUnique({
-      where:{id:notificationId}
-    })
-    if(!notification){
-      return res.status(404).json({
-        success:false,
-        msg:"We could not found this Notification!"
-      })
-    }
-
-    const markAsRead = await prisma.notification.update({
-      where:{id:notificationId},
-      data:{
-        read:true
-      }
-    })
-    if(!markAsRead){
-      return res.status(500).json({
-        success:false,
-        msg:"Something went wrong!"
-      })
-    }
-    return res.status(200).json({
-      success:true,
-      msg:"Mark as read."
-    })
-
-  } catch (error) {
-    return res.status(500).json({
-      success:false,
-      msg:"Error: During updating the status of notification."
-    })
-    
-  }
-}
 
 module.exports = {
   getAllProviders,
@@ -759,6 +641,4 @@ module.exports = {
   removeItemFromCart,
   getAllFeedback,
   giveFeedback,
-  getAllCustomerReceivedNotifications,
-  markNotificationAsRead
 };

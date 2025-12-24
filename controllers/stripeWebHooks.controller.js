@@ -69,176 +69,232 @@ const stripeWebhookHandler = async (req, res) => {
 /* --------------------------- CUSTOMER PAYMENT SUCCESS --------------------------- */
 
 const handleCheckoutCompleted = async (session) => {
-  const { userId, addressId, paymentId, cartItems } = session.metadata || {};
-  if (!userId || !addressId || !paymentId || !cartItems) return;
+  const { userId, addressId, paymentId, bookingIds, dbCart } = session.metadata || {};
 
-  const cartIds = JSON.parse(cartItems);
+  if (!userId || !addressId || !paymentId || !bookingIds || !dbCart) {
+    console.error("Missing metadata in webhook:", session.metadata);
+    return;
+  }
 
-  const payment = await prisma.customerPayment.findUnique({
-    where: { id: paymentId },
-  });
-
-  if (payment?.status === "PAID") return;
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  const address = await prisma.address.findUnique({ where: { id: addressId } });
-
-  const cart = await prisma.cart.findMany({
-    where: { id: { in: cartIds }, userId },
-    include: {
-      service: {
-        include: {
-          businessProfile: {
-            include: { user: true },
-          },
-        },
-      },
-      slot: true,
-      business: true,
-    },
-  });
-
-  if (!cart.length) return;
-
-  const result = await prisma.$transaction(async (tx) => {
-    const bookings = await Promise.all(
-      cart.map((item) =>
-        tx.booking.create({
-          data: {
-            userId,
-            addressId,
-            businessProfileId: item.business.id,
-            serviceId: item.serviceId,
-            slotId: item.slotId,
-            totalAmount: item.service.price,
-            paymentStatus: "PAID",
-            bookingStatus: "CONFIRMED",
-            date: item.date,
-          },
-        })
-      )
-    );
-
-    await tx.customerPayment.update({
-      where: { id: paymentId },
-      data: {
-        status: "PAID",
-        stripeSessionId: session.id,
-        paymentIntentId: session.payment_intent,
-        bookingIds: JSON.stringify(bookings.map((b) => b.id)),
-      },
-    });
-
-    await tx.cart.deleteMany({
-      where: { id: { in: cartIds }, userId },
-    });
-
-    return bookings;
-  });
-
-  /* ---------------- EMAIL ---------------- */
   try {
-    if (!user || !address || !cart.length) {
-      console.error("Invoice skipped: missing data");
+    const cartIds = JSON.parse(dbCart);
+    const bookingIdList = JSON.parse(bookingIds);
+
+    // Check if payment already processed (idempotency)
+    const payment = await prisma.customerPayment.findUnique({
+      where: { id: paymentId },
+    });
+
+    if (!payment) {
+      console.error(`Payment record ${paymentId} not found`);
       return;
     }
 
-    const invoiceData = buildInvoiceData({
-      business: {
-        name: cart[0].business.businessName,
-        email: cart[0].business.contactEmail,
-        phone: cart[0].business.phoneNumber,
+    if (payment.status === "PAID") {
+      console.log(`Payment ${paymentId} already processed`);
+      return;
+    }
+
+    // Fetch user and address
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const address = await prisma.address.findUnique({ where: { id: addressId } });
+
+    if (!user || !address) {
+      console.error("User or address not found");
+      return;
+    }
+
+    // Fetch cart items with all relations
+    const cart = await prisma.cart.findMany({
+      where: { id: { in: cartIds }, userId },
+      include: {
+        service: {
+          include: {
+            businessProfile: {
+              include: { user: true },
+            },
+          },
+        },
+        slot: true,
+        business: true,
       },
-
-      customer: {
-        name: user.name,
-        email: user.email,
-        address: `${address.street}, ${address.city}, ${address.state} - ${address.postalCode}`,
-      },
-
-      provider: {
-        name: cart[0].service.businessProfile.user.name,
-      },
-
-      items: cart.map((c) => ({
-        title: c.service.name,
-        price: c.service.price,
-        bookingDate: c.date,
-        slotTime: c.slot ? c.slot.time : "Not Assigned",
-      })),
-
-      payment: {
-        status: "PAID",
-        method: "Stripe",
-        transactionId: session.payment_intent,
-      },
-
-      invoiceNumber: `INV-${Date.now()}`,
     });
 
-    const pdfBuffer = await generateInvoicePDF(invoiceData);
+    if (!cart.length) {
+      console.error("Cart items not found");
+      return;
+    }
 
-    await sendMail({
-      email: user.email,
-      subject: "Booking Confirmed",
-      template: bookingSuccessEmailTemplate({
-        userName: user.name,
-        bookingIds: result.map((b) => b.id),
-        totalAmount: cart.reduce((sum, c) => sum + c.service.price, 0),
-        paymentId,
-        paymentDate: Date.now(),
-        services: cart.map((c) => ({
+    /* --------------------------- CONFIRM BOOKINGS --------------------------- */
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const confirmedBookings = [];
+
+        for (const bookingId of bookingIdList) {
+          // Find the locked booking
+          const booking = await tx.booking.findFirst({
+            where: {
+              id: bookingId,
+              userId,
+              bookingStatus: "PENDING_PAYMENT",
+              paymentStatus: "PENDING",
+              expiresAt: {
+                gt: new Date(), 
+              },
+            },
+          });
+
+          if (!booking) {
+            throw new Error(`Booking ${bookingId} expired or not found`);
+          }
+
+          // Confirm the booking
+          const confirmed = await tx.booking.update({
+            where: { id: booking.id },
+            data: {
+              paymentStatus: "PAID",
+              bookingStatus: "CONFIRMED",
+              expiresAt: null, // Remove expiration
+            },
+          });
+
+          confirmedBookings.push(confirmed);
+        }
+
+        // Update payment record
+        await tx.customerPayment.update({
+          where: { id: paymentId },
+          data: {
+            status: "PAID",
+            stripeSessionId: session.id,
+            paymentIntentId: session.payment_intent,
+            bookingIds: JSON.stringify(confirmedBookings.map((b) => b.id)),
+          },
+        });
+
+        // Clear cart
+        await tx.cart.deleteMany({
+          where: { id: { in: cartIds }, userId },
+        });
+
+        return confirmedBookings;
+      },
+      {
+        timeout: 10000,
+      }
+    );
+
+    console.log(`Successfully confirmed ${result.length} bookings`);
+
+    /* ---------------- SEND EMAIL WITH INVOICE ---------------- */
+    try {
+      const invoiceData = buildInvoiceData({
+        business: {
+          name: cart[0].business.businessName,
+          email: cart[0].business.contactEmail,
+          phone: cart[0].business.phoneNumber,
+        },
+
+        customer: {
+          name: user.name,
+          email: user.email,
+          address: `${address.street}, ${address.city}, ${address.state} - ${address.postalCode}`,
+        },
+
+        provider: {
+          name: cart[0].service.businessProfile.user.name,
+        },
+
+        items: cart.map((c) => ({
           title: c.service.name,
           price: c.service.price,
           bookingDate: c.date,
           slotTime: c.slot ? c.slot.time : "Not Assigned",
         })),
-        businessName: cart[0].business.businessName,
-      }),
-      attachments: [
-        {
-          filename: "invoice.pdf",
-          content: pdfBuffer,
+
+        payment: {
+          status: "PAID",
+          method: "Stripe",
+          transactionId: session.payment_intent,
         },
-      ],
-    });
-  } catch (err) {
-    console.error("Failed to generate/send invoice email:", err);
-  }
 
-  /* ---------------- PUSH NOTIFICATION ---------------- */
-  try {
-    const provider = await prisma.businessProfile.findUnique({
-      where: { id: result[0].businessProfileId },
-      select: { userId: true },
-    });
+        invoiceNumber: `INV-${Date.now()}`,
+      });
 
-    const fcmTokens = await prisma.fCMToken.findMany({
-      where: { userId: provider.userId },
-    });
+      const pdfBuffer = await generateInvoicePDF(invoiceData);
 
-    const services = await prisma.service.findMany({
-      where: { id: { in: result.map((r) => r.serviceId) } },
-    });
+      await sendMail({
+        email: user.email,
+        subject: "Booking Confirmed - Invoice Attached",
+        template: bookingSuccessEmailTemplate({
+          userName: user.name,
+          bookingIds: result.map((b) => b.id),
+          totalAmount: cart.reduce((sum, c) => sum + c.service.price, 0),
+          paymentId,
+          paymentDate: new Date().toISOString(),
+          services: cart.map((c) => ({
+            title: c.service.name,
+            price: c.service.price,
+            bookingDate: c.date,
+            slotTime: c.slot ? c.slot.time : "Not Assigned",
+          })),
+          businessName: cart[0].business.businessName,
+        }),
+        attachments: [
+          {
+            filename: "invoice.pdf",
+            content: pdfBuffer,
+          },
+        ],
+      });
 
-    const payload = {
-      title: "New Booking Received",
-      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${
-        user.name
-      }`,
-      type: "BOOKING_CREATED",
-    };
+      console.log("Invoice email sent successfully");
+    } catch (err) {
+      console.error("Failed to send invoice email:", err.message);
+    }
 
-    await NotificationService.sendNotification(
-      fcmTokens,
-      payload.title,
-      payload.body,
-      { type: payload.type }
-    );
+    /* ---------------- SEND PUSH NOTIFICATION TO PROVIDER ---------------- */
+    try {
+      const provider = await prisma.businessProfile.findUnique({
+        where: { id: result[0].businessProfileId },
+        select: { userId: true },
+      });
 
-    await StoreNotification(payload, provider, user);
-  } catch (err) {
-    console.error("Notification error:", err);
+      if (!provider) {
+        console.error("Provider not found");
+        return;
+      }
+
+      const fcmTokens = await prisma.fCMToken.findMany({
+        where: { userId: provider.userId },
+      });
+
+      const services = await prisma.service.findMany({
+        where: { id: { in: result.map((r) => r.serviceId) } },
+      });
+
+      const payload = {
+        title: "New Booking Received",
+        body: `New booking for ${services.map((s) => s.name).join(", ")} by ${user.name}`,
+        type: "BOOKING_CREATED",
+      };
+
+      if (fcmTokens.length > 0) {
+        await NotificationService.sendNotification(
+          fcmTokens,
+          payload.title,
+          payload.body,
+          { type: payload.type }
+        );
+      }
+
+      await StoreNotification(payload, provider, user);
+      console.log("Provider notification sent");
+    } catch (err) {
+      console.error("Notification error:", err.message);
+    }
+  } catch (error) {
+    console.error("Error in handleCheckoutCompleted:", error.message);
   }
 };
 
@@ -396,10 +452,10 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
 /* ------------------------- CUSTOMER PAYMENT FAILED ------------------------- */
 
 const handlePaymentFailed = async (intent) => {
-  const { userId, addressId, paymentId, cartItems } = session.metadata || {};
-  if (!userId || !addressId || !paymentId || !cartItems) return;
+  const { userId, addressId, paymentId, dbCart } = session.metadata || {};
+  if (!userId || !addressId || !paymentId || !dbCart) return;
 
-  const cartIds = JSON.parse(cartItems);
+  const cartIds = JSON.parse(dbCart);
 
   await prisma.customerPayment.update({
     where: { id: paymentId },
