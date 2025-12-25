@@ -34,7 +34,7 @@ app.use(
 
 ConnectDB();
 
-const { checkAuthToken } = require("./middleware/checkTOken");
+const { checkAuthToken } = require("./middleware/checkToken");
 const { RoleBasedAccess } = require("./middleware/checkRole");
 
 const AuthRoutes = require("./routes/auth.route");

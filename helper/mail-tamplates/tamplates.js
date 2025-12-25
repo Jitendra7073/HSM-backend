@@ -1,6 +1,8 @@
+const BASE_URL = process.env.CLIENT_URL;
+
 /* ---------------- WELCOME USER ---------------- */
 function welcomeUserTamplate(userName) {
-  const ExploreServicesURL = "http://localhost:3000/customer/explore";
+  const ExploreServicesURL = `${BASE_URL}/customer/explore`;
   return `
 <!DOCTYPE html>
 <html>
@@ -60,7 +62,7 @@ function welcomeUserTamplate(userName) {
 
 /* ---------------- FORGOT PASSWORD ---------------- */
 const forgotPasswordTamplate = (name, token) => {
-  const resetUrl = `http://localhost:3000/auth/reset-password?token=${token}`;
+  const resetUrl = `${BASE_URL}/auth/reset-password?token=${token}`;
 
   return `
 <!DOCTYPE html>
