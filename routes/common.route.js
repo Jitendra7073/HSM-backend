@@ -3,7 +3,7 @@ const route = express.Router();
 
 /* ---------------- CONTROLLER ---------------- */
 const commonRoutes = require("../controllers/common.controller");
-const { checkAuthToken } = require("../middleware/checkTOken");
+const { checkAuthToken } = require("../middleware/checkToken");
 const ProviderController = require("../controllers/provider.controller");
 
 /* ---------------- PROFILE ROUTE ---------------- */
