@@ -1,24 +1,26 @@
 const { Pool } = require("pg");
 
-/* ---------------- POSTGRES CONNECTION CREDENTIALS ---------------- */
+/* ---------------- NEON POSTGRES CONNECTION ---------------- */
 const pool = new Pool({
-  host: "localhost",
-  user: "postgres",
-  port: 5432,
-  password: "password",
-  database: "home-service-management",
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false, 
+  },
 });
 
 /* ---------------- CONNECTING WITH DATABASE ---------------- */
-const ConnectDB = () => {
-  pool
-    .connect()
-    .then(() => {
-      console.log("Database Connected Successfully.");
-    })
-    .catch((error) => {
-      console.error(`Failed to connect with database : ${error}`);
-    });
+const ConnectDB = async () => {
+  try {
+    const client = await pool.connect();
+    console.log("Neon PostgreSQL Connected Successfully");
+    client.release();
+  } catch (error) {
+    console.error("Failed to connect with Neon DB:", error.message);
+    process.exit(1);
+  }
 };
 
-module.exports = ConnectDB;
+module.exports = {
+  pool,
+  ConnectDB,
+};
