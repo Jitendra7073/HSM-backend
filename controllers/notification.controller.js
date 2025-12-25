@@ -1,41 +1,48 @@
 const prisma = require("../prismaClient");
 
 /* ---------------- STORE FCM TOKEN ---------------- */
+
+const storeFcmTokenService = async ({ userId, token }) => {
+  if (!userId || !token) {
+    throw new Error("UserId and FCM token are required");
+  }
+
+  const existingToken = await prisma.FCMToken.findUnique({
+    where: { token },
+  });
+
+  if (existingToken) {
+    return {
+      created: false,
+      message: "Already registered",
+    };
+  }
+
+  await prisma.FCMToken.create({
+    data: { userId, token },
+  });
+
+  return {
+    created: true,
+    message: "Device registered successfully",
+  };
+};
+
 const storeFcmToken = async (req, res) => {
   try {
     const userId = req.user.id;
     const { token } = req.body;
 
-    if (!userId || !token) {
-      return res.status(400).json({
-        success: false,
-        msg: "UserId and FCM token are required!",
-      });
-    }
+    const result = await storeFcmTokenService({ userId, token });
 
-    const isTokenExists = await prisma.FCMToken.findUnique({
-      where: { token },
-    });
-
-    if (isTokenExists) {
-      return res.status(200).json({
-        success: true,
-        msg: "Already registered",
-      });
-    }
-
-    await prisma.FCMToken.create({
-      data: { userId, token },
-    });
-
-    return res.status(201).json({
+    return res.status(result.created ? 201 : 200).json({
       success: true,
-      msg: "Device registered successfully",
+      msg: result.message,
     });
   } catch (error) {
     return res.status(500).json({
-      success: true,
-      msg: "Failed to registered Device!",
+      success: false,
+      msg: "Failed to register device",
     });
   }
 };

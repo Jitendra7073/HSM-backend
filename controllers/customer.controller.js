@@ -518,7 +518,6 @@ const giveFeedback = async (req, res) => {
     abortEarly: false,
   });
 
-  console.log("values:",value);
 
   if (error) {
     return res.status(422).json({

@@ -102,7 +102,7 @@ model BusinessProfile {
   contactEmail String
   phoneNumber  String
   websiteURL   String?
-  socialLinks  String?
+  socialLinks  Json?
 
   // Business Status
   isActive Boolean @default(true)

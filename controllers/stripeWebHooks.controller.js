@@ -91,7 +91,6 @@ const handleCheckoutCompleted = async (session) => {
     }
 
     if (payment.status === "PAID") {
-      console.log(`Payment ${paymentId} already processed`);
       return;
     }
 
@@ -184,7 +183,6 @@ const handleCheckoutCompleted = async (session) => {
       }
     );
 
-    console.log(`Successfully confirmed ${result.length} bookings`);
 
     /* ---------------- SEND EMAIL WITH INVOICE ---------------- */
     try {
@@ -248,7 +246,6 @@ const handleCheckoutCompleted = async (session) => {
         ],
       });
 
-      console.log("Invoice email sent successfully");
     } catch (err) {
       console.error("Failed to send invoice email:", err.message);
     }
@@ -288,8 +285,7 @@ const handleCheckoutCompleted = async (session) => {
         );
       }
 
-      await StoreNotification(payload, provider, user);
-      console.log("Provider notification sent");
+      await StoreNotification(payload, provider.userId, user.id);
     } catch (err) {
       console.error("Notification error:", err.message);
     }

@@ -199,7 +199,7 @@ const deleteAddress = async (req, res) => {
     if (confirmedBookingExists) {
       return res.status(400).json({
         success: false,
-        msg: "Address cannot be deleted because it is associated with a confirmed booking.",
+        msg: "This address is associated with a booking which may not be completed yet!",
       });
     }
 

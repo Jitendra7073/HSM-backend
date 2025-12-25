@@ -40,7 +40,7 @@ const createBusiness = async (req, res) => {
     if (isBusinessEmailExist || isBusinessExist) {
       return res.status(400).json({
         success: false,
-        msg: "Business already exists!",
+        msg: "Business email and phone number already exist!",
       });
     }
 
@@ -82,6 +82,7 @@ const createBusiness = async (req, res) => {
       business: newBusiness,
     });
   } catch (err) {
+    console.log("Error during creating business :",err)
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create business.",
@@ -390,7 +391,6 @@ const createService = async (req, res) => {
       service: newService,
     });
   } catch (err) {
-    console.log(err)
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create service.",

@@ -9,7 +9,26 @@ const businessProfileSchema = Joi.object({
     .pattern(/^[0-9]{10}$/)
     .required(),
   websiteURL: Joi.string().trim().uri(),
-  socialLinks: Joi.array().items(Joi.string().uri()),
+  socialLinks: Joi.array()
+    .items(
+      Joi.object({
+        key: Joi.string().min(2).max(50).required().messages({
+          "string.empty": "Social platform is required",
+          "string.min": "Platform name must be at least 2 characters",
+        }),
+
+        value: Joi.string()
+          .uri({ scheme: ["http", "https"] })
+          .required()
+          .messages({
+            "string.empty": "Social URL is required",
+            "string.uri": "Invalid social URL",
+          }),
+      })
+    )
+    .unique("value")
+    .default([]),
+
   isActive: Joi.boolean().default(true),
 });
 
@@ -19,7 +38,7 @@ const serviceProfileSchema = Joi.object({
   description: Joi.string().min(10).max(200).required(),
   durationInMinutes: Joi.number().positive().required(),
   price: Joi.number().min(1).required(),
-  totalBookingAllow:Joi.number().positive().required(),
+  totalBookingAllow: Joi.number().positive().required(),
   currency: Joi.string().valid("INR", "USD", "EUR").default("INR"),
   isActive: Joi.boolean().default(true),
   coverImage: Joi.string().uri().optional().allow(null),
@@ -39,10 +58,8 @@ const slotProfileSchema = Joi.object({
 const teamMemberSchema = Joi.object({
   name: Joi.string().trim().min(3).max(50).required(),
   role: Joi.string().trim().min(2).max(50).required(),
-  description: Joi.string().trim().max(500).allow('').optional(),
-  status: Joi.string()
-    .valid('Available', 'Busy', 'Off')
-    .default('Available'),
+  description: Joi.string().trim().max(500).allow("").optional(),
+  status: Joi.string().valid("Available", "Busy", "Off").default("Available"),
   phone: Joi.string()
     .pattern(/^[0-9]{10}$/)
     .required(),
@@ -52,5 +69,5 @@ module.exports = {
   businessProfileSchema,
   serviceProfileSchema,
   slotProfileSchema,
-  teamMemberSchema
+  teamMemberSchema,
 };
