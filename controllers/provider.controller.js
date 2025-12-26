@@ -188,26 +188,93 @@ const deleteBusiness = async (req, res) => {
 
 /* ---------------- BUSINESS CATEGORY ---------------- */
 const getAllBusinessCategory = async (req, res) => {
-  const businessCategory = await prisma.Businesscategory.findMany();
-  const businesses = await prisma.BusinessProfile.findMany();
+  try {
+    const categories = await prisma.Businesscategory.findMany({
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
-  const categoriesWithCounts = businessCategory.map((category) => {
-    const count = businesses.filter(
-      (biz) => biz.businessCategoryId === category.id
-    ).length;
+    const allProviders = await prisma.user.findMany({
+      where: {
+        businessProfile: {
+          isNot: null,
+        },
+      },
+      select: {
+        businessProfile: {
+          select: {
+            businessCategoryId: true,
+          },
+        },
+      },
+    });
 
-    return {
-      ...category,
-      providersCount: count,
-    };
-  });
+    const activeProviders = await prisma.user.findMany({
+      where: {
+        businessProfile: {
+          isNot: null,
+        },
+        providerSubscription: {
+          is: {
+            status: "active",
+          },
+        },
+      },
+      select: {
+        businessProfile: {
+          select: {
+            businessCategoryId: true,
+          },
+        },
+      },
+    });
 
-  return res.status(200).json({
-    success: true,
-    msg: "Business Category fetched successfully.",
-    count: categoriesWithCounts.length,
-    categories: categoriesWithCounts,
-  });
+    //  Build TOTAL  provider count map
+    const totalProviderCountMap = allProviders.reduce((acc, user) => {
+      const categoryId = user.businessProfile?.businessCategoryId;
+      if (!categoryId) return acc;
+
+      acc[categoryId] = (acc[categoryId] || 0) + 1;
+      return acc;
+    }, {});
+
+    //  Build ACTIVE provider count map
+    const activeProviderCountMap = activeProviders.reduce((acc, user) => {
+      const categoryId = user.businessProfile?.businessCategoryId;
+      if (!categoryId) return acc;
+
+      acc[categoryId] = (acc[categoryId] || 0) + 1;
+      return acc;
+    }, {});
+
+    const categoriesWithCounts = categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      description: category.description,
+      createdAt: category.createdAt,
+      updatedAt: category.updatedAt,
+      totalProvidersCount: totalProviderCountMap[category.id] || 0,
+      activeProvidersCount: activeProviderCountMap[category.id] || 0,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      msg: "Business Category fetched successfully.",
+      count: categoriesWithCounts.length,
+      categories: categoriesWithCounts,
+    });
+  } catch (error) {
+    console.error("Error fetching business categories:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Internal server error",
+    });
+  }
 };
 
 const createBusinessCategory = async (req, res) => {
@@ -823,103 +890,103 @@ const deleteSlot = async (req, res) => {
 /* ---------------- BOOKINGS ---------------- */
 const bookingList = async (req, res) => {
   // try {
-    const userId = req.user.id;
-    const { bookingId } = await req.query;
+  const userId = req.user.id;
+  const { bookingId } = await req.query;
 
-    const businessProfile = await prisma.BusinessProfile.findUnique({
-      where: { userId },
+  const businessProfile = await prisma.BusinessProfile.findUnique({
+    where: { userId },
+  });
+
+  if (!businessProfile) {
+    return res.status(404).json({
+      success: false,
+      msg: "Business profile not found for this user.",
     });
+  }
 
-    if (!businessProfile) {
-      return res.status(404).json({
-        success: false,
-        msg: "Business profile not found for this user.",
-      });
-    }
-
-    if (bookingId) {
-      const bookings = await prisma.Booking.findFirst({
-        where: {
-          id: bookingId,
-        },
-        select: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-              mobile: true,
-            },
-          },
-          address: true,
-          service: true,
-          slot: {
-            select: {
-              time: true,
-            },
-          },
-          date: true,
-          bookingStatus: true,
-          paymentStatus: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      });
-
-      if (!bookings) {
-        return res.status(404).json({
-          success: false,
-          msg: "Booking not found for this User.",
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        msg: "Booking fetched successfully.",
-        bookings,
-      });
-    }
-
-    const bookings = await prisma.Booking.findMany({
+  if (bookingId) {
+    const bookings = await prisma.Booking.findFirst({
       where: {
-        businessProfileId: businessProfile.id,
+        id: bookingId,
       },
-      orderBy: { createdAt: "desc" },
-      include: {
+      select: {
         user: {
           select: {
-            id: true,
             name: true,
+            email: true,
+            mobile: true,
           },
         },
-        service: {
+        address: true,
+        service: true,
+        slot: {
           select: {
-            id: true,
-            name: true,
+            time: true,
           },
         },
+        date: true,
+        bookingStatus: true,
+        paymentStatus: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
 
-    if (bookings.length === 0) {
-      return res.status(200).json({
-        success: true,
-        msg: "No bookings found for this business.",
-        count: 0,
-        bookings: [],
+    if (!bookings) {
+      return res.status(404).json({
+        success: false,
+        msg: "Booking not found for this User.",
       });
     }
 
     return res.status(200).json({
       success: true,
-      msg: "Bookings fetched successfully.",
-      count: bookings.length,
+      msg: "Booking fetched successfully.",
       bookings,
     });
+  }
+
+  const bookings = await prisma.Booking.findMany({
+    where: {
+      businessProfileId: businessProfile.id,
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      service: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  });
+
+  if (bookings.length === 0) {
+    return res.status(200).json({
+      success: true,
+      msg: "No bookings found for this business.",
+      count: 0,
+      bookings: [],
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    msg: "Bookings fetched successfully.",
+    count: bookings.length,
+    bookings,
+  });
   // } catch (error) {
-    // return res.status(500).json({
-    //   success: false,
-    //   msg: "Server error while fetching bookings.",
-    // });
+  // return res.status(500).json({
+  //   success: false,
+  //   msg: "Server error while fetching bookings.",
+  // });
   // }
 };
 
@@ -927,22 +994,19 @@ const updateBooking = async (req, res) => {
   const providerId = req.user.id;
   const { bookingId } = req.params;
 
-  const { status, partnerId } = req.body;
+  const { status } = req.body;
   if (!bookingId) {
     return res.status(400).json({
       success: false,
       msg: "Booking ID is required.",
     });
   }
-
-  // Nothing to update
-  if (!status && !partnerId) {
+  if (!status) {
     return res.status(400).json({
       success: false,
       msg: "Nothing to update.",
     });
   }
-
   try {
     const booking = await prisma.Booking.findUnique({
       where: { id: bookingId },
@@ -962,46 +1026,22 @@ const updateBooking = async (req, res) => {
     const updateData = {};
     let notificationPayload = null;
 
-    /* ---------------- STATUS UPDATE ---------------- */
+    const normalizedStatus = status.toUpperCase();
 
-    if (status) {
-      const normalizedStatus = status.toUpperCase();
-
-      if (normalizedStatus === booking.bookingStatus) {
-        return res.status(400).json({
-          success: false,
-          msg: "Booking already has this status.",
-        });
-      }
-
-      updateData.bookingStatus = normalizedStatus;
-
-      notificationPayload = {
-        title: `Booking ${normalizedStatus}`,
-        body: `Your ${booking.service.name} booking has been ${normalizedStatus}.`,
-        type: "BOOKING_STATUS_UPDATED",
-      };
+    if (normalizedStatus === booking.bookingStatus) {
+      return res.status(400).json({
+        success: false,
+        msg: "Booking already has this status.",
+      });
     }
 
-    /* ---------------- PARTNER ASSIGNMENT ---------------- */
+    updateData.bookingStatus = normalizedStatus;
 
-    if (partnerId) {
-      if (booking.partnerId === partnerId) {
-        return res.status(400).json({
-          success: false,
-          msg: "Partner already assigned to this booking.",
-        });
-      }
-
-      updateData.partnerId = partnerId;
-
-      notificationPayload = {
-        title: "Partner Assigned",
-        body: `A partner has been assigned to your ${booking.service.name} booking.`,
-        type: "BOOKING_PARTNER_ASSIGNED",
-      };
-    }
-
+    notificationPayload = {
+      title: `Booking ${normalizedStatus}`,
+      body: `Your ${booking.service.name} booking has been ${normalizedStatus}.`,
+      type: "BOOKING_STATUS_UPDATED",
+    };
     const updatedBooking = await prisma.Booking.update({
       where: { id: bookingId },
       data: updateData,
