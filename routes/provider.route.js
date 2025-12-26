@@ -43,7 +43,7 @@ route.get("/dashboard/stats", ProviderController.getDashboardStats);
 
 /* ---------------- SERVICE FEEDBACK  ---------------- */
 route.get("/service-feedback", ProviderController.getAllFeedbacks);
-route.patch("/service-feedback/:feedbackId", ProviderController.updateServiceFeedbackStatus);
+// route.patch("/service-feedback/:feedbackId", ProviderController.updateServiceFeedbackStatus);
 
 /* ----------------- SUBSCTION DATA ----------------- */
 route.get("/subscription-plans", ProviderController.getAllSubscriptionPlans);

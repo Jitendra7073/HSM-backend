@@ -121,7 +121,7 @@ const customerPayment = async (req, res) => {
                 totalAmount: item.service.price, // Individual amount per booking
                 bookingStatus: "PENDING_PAYMENT",
                 paymentStatus: "PENDING",
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
+                expiresAt: new Date(Date.now() + 2 * 60 * 1000), // 2 min lock
               },
             });
 
@@ -131,7 +131,7 @@ const customerPayment = async (req, res) => {
           return bookings;
         },
         {
-          isolationLevel: "Serializable", // Prevents race conditions
+          isolationLevel: "Serializable", 
           timeout: 10000, // 10 second timeout
         }
       );
@@ -163,7 +163,7 @@ const customerPayment = async (req, res) => {
         addressId,
         paymentId: paymentRecord.id,
         bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
-        dbCart: JSON.stringify(cartItems), // ✅ Pass cart IDs
+        dbCart: JSON.stringify(cartItems), 
       },
       line_items: dbCart.map((item) => ({
         price_data: {
@@ -191,13 +191,13 @@ const customerPayment = async (req, res) => {
 };
 
 /* ---------------- CLEANUP EXPIRED BOOKINGS ---------------- */
-const cleanupExpiredBookings = async () => {
+const CleanupExpiredBookings = async () => {
   try {
     const expired = await prisma.booking.deleteMany({
       where: {
         bookingStatus: "PENDING_PAYMENT",
         expiresAt: {
-          lte: new Date(),
+          lt: new Date(),
         },
       },
     });
@@ -314,5 +314,5 @@ module.exports = {
   customerPayment,
   providerSubscriptionCheckout,
   seedProviderSubscriptionPlans,
-  cleanupExpiredBookings
+  CleanupExpiredBookings
 };

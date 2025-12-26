@@ -50,8 +50,8 @@ app.use("/api/v1", CommonRoute);
 
 /* ---------------- PROTECTED ROUTE ---------------- */
 app.use(checkAuthToken());
-app.use("/api/v1/notification", NotificationRoute);
 app.use("/api/v1/payment", PaymentRoute);
+app.use("/api/v1/notification", NotificationRoute);
 app.use("/api/v1/customer", RoleBasedAccess("customer"), CustomerRoute)
 app.use("/api/v1/provider", RoleBasedAccess("provider"), ProviderRoute);
 

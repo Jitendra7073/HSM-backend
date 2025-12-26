@@ -115,11 +115,7 @@ const getProviderById = async (req, res) => {
                 averageRating: true,
                 reviewCount: true,
                 isActive: true,
-                feedback: {
-                  where: {
-                    approved: true,
-                  },
-                },
+                feedback: true,
               },
             },
             slots: {

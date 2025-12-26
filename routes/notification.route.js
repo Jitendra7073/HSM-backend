@@ -1,6 +1,7 @@
 const express = require("express");
 const route = express.Router();
 const NotificationController = require("../controllers/notification.controller");
+const { checkAuthToken } = require("../middleware/checkToken");
 
 /* ---------------- STORE FCM TOKEN ROUTE ---------------- */
 route.post("/store-fcm-token",NotificationController.storeFcmToken)

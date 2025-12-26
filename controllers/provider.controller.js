@@ -82,7 +82,6 @@ const createBusiness = async (req, res) => {
       business: newBusiness,
     });
   } catch (err) {
-    console.log("Error during creating business :",err)
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create business.",
@@ -1240,34 +1239,34 @@ const getAllFeedbacks = async (req, res) => {
   }
 };
 
-const updateServiceFeedbackStatus = async (req, res) => {
-  const { feedbackId } = req.params;
+// const updateServiceFeedbackStatus = async (req, res) => {
+//   const { feedbackId } = req.params;
 
-  if (!feedbackId) {
-    return res.status(400).json({ msg: "Feedback ID is required" });
-  }
+//   if (!feedbackId) {
+//     return res.status(400).json({ msg: "Feedback ID is required" });
+//   }
 
-  try {
-    const feedback = await prisma.feedback.findUnique({
-      where: { id: feedbackId },
-    });
+//   try {
+//     const feedback = await prisma.feedback.findUnique({
+//       where: { id: feedbackId },
+//     });
 
-    if (!feedback) {
-      return res.status(404).json({ msg: "Feedback not found" });
-    }
+//     if (!feedback) {
+//       return res.status(404).json({ msg: "Feedback not found" });
+//     }
 
-    await prisma.feedback.update({
-      where: { id: feedbackId },
-      data: { approved: true },
-    });
+//     await prisma.feedback.update({
+//       where: { id: feedbackId },
+//       data: { approved: true },
+//     });
 
-    return res
-      .status(200)
-      .json({ msg: "Feedback status updated successfully" });
-  } catch (error) {
-    return res.status(500).json({ msg: "Failed to update feedback status" });
-  }
-};
+//     return res
+//       .status(200)
+//       .json({ msg: "Feedback status updated successfully" });
+//   } catch (error) {
+//     return res.status(500).json({ msg: "Failed to update feedback status" });
+//   }
+// };
 
 /* ---------------- SERVICE FEEDBACK ---------------- */
 const getAllSubscriptionPlans = async (req, res) => {
@@ -1308,7 +1307,7 @@ module.exports = {
 
   // Feedbacks
   getAllFeedbacks,
-  updateServiceFeedbackStatus,
+  // updateServiceFeedbackStatus,
 
   // Subscription Plans
   getAllSubscriptionPlans,

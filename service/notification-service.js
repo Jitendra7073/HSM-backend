@@ -1,30 +1,65 @@
-const admin = require("../firebase/firebase");
-const prisma = require("../prismaClient");
+const admin = "../firebase/firebase.js";
+const prisma = "../prismaClient.js";
+
+let fcmDisabled = false;
+
+/* ---------------- HELPERS ---------------- */
+async function handleFCMError(err, tokens = []) {
+  console.error("FCM error:", err.code, err.message);
+
+  if (err.code === "app/invalid-credential") {
+    fcmDisabled = true;
+    return;
+  }
+
+  if (
+    err.code === "messaging/registration-token-not-registered" ||
+    err.code === "messaging/invalid-registration-token"
+  ) {
+    await prisma.fCMToken.updateMany({
+      where: { token: { in: tokens } },
+      data: { isActive: false },
+    });
+  }
+}
+
+function normalizeTokens(tokens) {
+  let list = [];
+
+  if (typeof tokens === "string") {
+    list = [tokens.trim()];
+  } else if (Array.isArray(tokens)) {
+    list = tokens
+      .map((t) => {
+        if (typeof t === "string") return t.trim();
+        if (typeof t === "object" && t.token) return t.token.trim();
+        return null;
+      })
+      .filter((t) => t && t.length > 20);
+  }
+
+  return [...new Set(list)];
+}
+
+function stringifyData(data = {}) {
+  return Object.fromEntries(
+    Object.entries(data).map(([k, v]) => [k, String(v)])
+  );
+}
+
 
 
 /* ---------------- NOTIFICATION SERVICE ---------------- */
 class NotificationService {
   static async sendNotification(tokens, title, body, data = {}) {
+    if (fcmDisabled) return;
+    if (!title || !body) return;
+
     try {
+      const tokenList = normalizeTokens(tokens);
+      if (!tokenList.length) return;
 
-      let tokenList = [];
-
-      if (typeof tokens === "string") {
-        tokenList = [tokens];
-      } else if (Array.isArray(tokens)) {
-        tokenList = tokens
-          .map((t) => {
-            if (typeof t === "string") return t;
-            if (typeof t === "object" && t.token) return t.token;
-            return null;
-          })
-          .filter(Boolean);
-      }
-
-      if (!tokenList.length) {
-        return;
-      }
-
+      // Single token
       if (tokenList.length === 1) {
         try {
           return await admin.messaging().send({
@@ -38,24 +73,13 @@ class NotificationService {
         }
       }
 
-      const message = {
+      // Multiple tokens
+      const response = await admin.messaging().sendEachForMulticast({
         tokens: tokenList,
         notification: { title, body },
         data: stringifyData(data),
-      };
+      });
 
-      let response;
-      try {
-        response = await admin.messaging().sendEachForMulticast(message);
-      } catch (err) {
-        if (err.code === "app/invalid-credential") {
-          fcmDisabled = true;
-          return;
-        }
-        throw err;
-      }
-
-      /* ---------- CLEANUP INVALID TOKENS ---------- */
       const invalidTokens = [];
 
       response.responses.forEach((res, idx) => {
@@ -71,43 +95,17 @@ class NotificationService {
       });
 
       if (invalidTokens.length) {
-        await prisma.fCMToken.deleteMany({
+        await prisma.fCMToken.updateMany({
           where: { token: { in: invalidTokens } },
+          data: { isActive: false },
         });
       }
 
       return response;
-
     } catch (error) {
+      console.error(" Notification send failed:", error);
     }
   }
-}
-
-/* ---------------- FCM ERROR HANDLER ---------------- */
-async function handleFCMError(err, tokens = []) {
-  if (err.code === "app/invalid-credential") {
-    fcmDisabled = true;
-    return;
-  }
-  if (
-    err.code === "messaging/registration-token-not-registered" ||
-    err.code === "messaging/invalid-registration-token"
-  ) {
-    await prisma.fCMToken.deleteMany({
-      where: { token: { in: tokens } },
-    });
-    return;
-  }
-
-}
-
-/* ---------------- HELPER: STRINGIFY DATA ---------------- */
-function stringifyData(data) {
-  const result = {};
-  for (const key in data) {
-    result[key] = String(data[key]);
-  }
-  return result;
 }
 
 module.exports = NotificationService;

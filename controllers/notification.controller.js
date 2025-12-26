@@ -1,37 +1,78 @@
 const prisma = require("../prismaClient");
 
-/* ---------------- STORE FCM TOKEN ---------------- */
-
+/* ---------------- STORE / UPDATE FCM TOKEN ---------------- */
 const storeFcmTokenService = async ({ userId, token }) => {
-  if (!userId || !token) {
-    throw new Error("UserId and FCM token are required");
+  if (!userId || !token || token.trim().length < 20) {
+    throw new Error("Invalid userId or FCM token");
   }
 
-  const existingToken = await prisma.FCMToken.findUnique({
-    where: { token },
-  });
+  const normalizedToken = token.trim();
 
-  if (existingToken) {
+  return await prisma.$transaction(async (tx) => {
+    const existingToken = await tx.fCMToken.findUnique({
+      where: { token: normalizedToken },
+    });
+
+    //  Token exists for same user
+    if (existingToken && existingToken.userId === userId) {
+      if (!existingToken.isActive) {
+        await tx.fCMToken.update({
+          where: { token: normalizedToken },
+          data: { isActive: true },
+        });
+      }
+
+      return {
+        created: false,
+        message: "Device already registered",
+      };
+    }
+
+    //  Token exists but linked to another user
+    if (existingToken && existingToken.userId !== userId) {
+      await tx.fCMToken.update({
+        where: { token: normalizedToken },
+        data: {
+          userId,
+          isActive: true,
+        },
+      });
+
+      return {
+        created: false,
+        message: "Device re-linked to user",
+      };
+    }
+
+    //  New token
+    await tx.fCMToken.create({
+      data: {
+        userId,
+        token: normalizedToken,
+        isActive: true,
+      },
+    });
+
     return {
-      created: false,
-      message: "Already registered",
+      created: true,
+      message: "Device registered successfully",
     };
-  }
-
-  await prisma.FCMToken.create({
-    data: { userId, token },
   });
-
-  return {
-    created: true,
-    message: "Device registered successfully",
-  };
 };
 
+/* ---------------- STORE FCM TOKEN API ---------------- */
 const storeFcmToken = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { token } = req.body;
+    const userId = req.user?.id; 
+     const token = req.headers["x-fcm-token"];
+
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        msg: "Unauthorized",
+      });
+    }
 
     const result = await storeFcmTokenService({ userId, token });
 
@@ -40,26 +81,30 @@ const storeFcmToken = async (req, res) => {
       msg: result.message,
     });
   } catch (error) {
+    console.error("FCM token store failed:", error);
+
     return res.status(500).json({
       success: false,
-      msg: "Failed to register device",
+      msg: error.message || "Failed to register device",
     });
   }
 };
 
 /* ---------------- STORE NOTIFICATION ---------------- */
-const StoreNotification = async (newBooking_Payload, receiverId, senderId) => {
+const storeNotification = async ({ title, body, receiverId, senderId }) => {
+  if (!title || !body || !receiverId) return;
+
   try {
-    await prisma.Notification.create({
+    await prisma.notification.create({
       data: {
-        title: newBooking_Payload.title,
-        message: newBooking_Payload.body,
-        receiverId: receiverId,
-        senderId: senderId,
+        title,
+        message: body,
+        receiverId,
+        senderId: senderId || null,
       },
     });
   } catch (error) {
-    console.error("Failed to store notification!");
+    console.error("Failed to store notification:", error);
   }
 };
 
@@ -122,7 +167,7 @@ const markNotificationAsRead = async (req, res) => {
 };
 module.exports = {
   storeFcmToken,
-  StoreNotification,
+  storeNotification,
   getAllReceivedNotifications,
   markNotificationAsRead,
 };

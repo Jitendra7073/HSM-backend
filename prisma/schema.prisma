@@ -285,7 +285,9 @@ model Cart {
 model FCMToken {
   id        String   @id @default(uuid())
   token     String   @unique
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -304,8 +306,8 @@ model Notification {
   receiverId String
   receiver   User   @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
 
-  senderId String
-  sender   User   @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  senderId String?
+  sender   User?   @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
 }
 
 /**
@@ -317,7 +319,6 @@ model Feedback {
   rating      Int
   comment     String
   servicename String
-  approved    Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   bookingId String  @unique
