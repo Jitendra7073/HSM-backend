@@ -991,68 +991,57 @@ const bookingList = async (req, res) => {
 };
 
 const updateBooking = async (req, res) => {
-  const providerId = req.user.id;
+  const providerId = req.user?.id;
   const { bookingId } = req.params;
-
   const { status } = req.body;
+
+  if (!providerId) {
+    return res.status(401).json({ success: false, msg: "Unauthorized" });
+  }
+
   if (!bookingId) {
-    return res.status(400).json({
-      success: false,
-      msg: "Booking ID is required.",
-    });
+    return res.status(400).json({ success: false, msg: "Booking ID is required." });
   }
+
   if (!status) {
-    return res.status(400).json({
-      success: false,
-      msg: "Nothing to update.",
-    });
+    return res.status(400).json({ success: false, msg: "Nothing to update." });
   }
+
   try {
-    const booking = await prisma.Booking.findUnique({
+    const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
-      include: {
-        user: true,
-        service: true,
-      },
+      include: { user: true, service: true },
     });
 
     if (!booking) {
-      return res.status(404).json({
-        success: false,
-        msg: "Booking not found.",
-      });
+      return res.status(404).json({ success: false, msg: "Booking not found." });
     }
-
-    const updateData = {};
-    let notificationPayload = null;
 
     const normalizedStatus = status.toUpperCase();
 
-    if (normalizedStatus === booking.bookingStatus) {
+    if (normalizedStatus === booking.bookingStatus?.toUpperCase()) {
       return res.status(400).json({
         success: false,
         msg: "Booking already has this status.",
       });
     }
 
-    updateData.bookingStatus = normalizedStatus;
-
-    notificationPayload = {
-      title: `Booking ${normalizedStatus}`,
-      body: `Your ${booking.service.name} booking has been ${normalizedStatus}.`,
-      type: "BOOKING_STATUS_UPDATED",
-    };
-    const updatedBooking = await prisma.Booking.update({
+    const updatedBooking = await prisma.booking.update({
       where: { id: bookingId },
-      data: updateData,
+      data: { bookingStatus: normalizedStatus },
     });
 
-    if (notificationPayload) {
-      const fcmTokens = await prisma.fCMToken.findMany({
+    const notificationPayload = {
+      title: `Booking ${normalizedStatus}`,
+      body: `Your ${booking.service?.name || "service"} booking has been ${normalizedStatus}.`,
+      type: "BOOKING_STATUS_UPDATED",
+    };
+
+    await StoreNotification(notificationPayload, booking.userId, providerId);
+    try {
+      const fcmTokens = await prisma.fcmToken.findMany({
         where: { userId: booking.userId },
       });
-
-      await StoreNotification(notificationPayload, booking.userId, providerId);
 
       await NotificationService.sendNotification(
         fcmTokens,
@@ -1060,6 +1049,8 @@ const updateBooking = async (req, res) => {
         notificationPayload.body,
         { type: notificationPayload.type }
       );
+    } catch (notifyErr) {
+      console.error("Notification error:", notifyErr);
     }
 
     return res.status(200).json({
@@ -1068,12 +1059,14 @@ const updateBooking = async (req, res) => {
       updatedBooking,
     });
   } catch (error) {
+    console.error("Update booking error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server error while updating booking.",
     });
   }
 };
+
 
 /* ---------------- DASHBOARD STATES ---------------- */
 const getDashboardStats = async (req, res) => {
