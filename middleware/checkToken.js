@@ -3,25 +3,34 @@ const { verifyToken } = require("../helper/jwtToken");
 /* ---------------- CHECK USER AUTH TOKEN ---------------- */
 const checkAuthToken = () => {
   return (req, res, next) => {
-    const token = req.cookies.token;
+    const token = req.cookies.accessToken;
 
     if (!token) {
-      res.status(404).json({
+      res.status(401).json({
         success: false,
-        msg: "Login Required!",
+        msg: "Access token required!",
       });
-
-      return next();
+      return;
     }
 
     try {
       const User = verifyToken(token);
+      if (User.type !== "access") {
+        res.status(401).json({
+          success: false,
+          msg: "Invalid token type!",
+        });
+        return;
+      }
       req.user = User;
+      next();
     } catch (error) {
-      console.error("Error :", error);
+      console.error("Token verification error:", error);
+      res.status(401).json({
+        success: false,
+        msg: "Invalid or expired access token!",
+      });
     }
-
-    return next();
   };
 };
 

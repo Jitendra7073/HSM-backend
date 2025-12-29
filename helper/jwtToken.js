@@ -5,7 +5,7 @@ const GenerateAccessToken = (user) => {
   return jwt.sign(
     {
       id: user.id,
-      role:user.role,
+      role: user.role,
       type: "access",
     },
     process.env.JWT_SECRET_KEY,
@@ -18,7 +18,7 @@ const GenerateRefreshToken = (user, tokenVersion) => {
   return jwt.sign(
     {
       id: user.id,
-      role:user.role,
+      role: user.role,
       tokenVersion,
       type: "refresh",
     },
@@ -47,4 +47,6 @@ const verifyToken = (token) => {
 module.exports = {
   assignToken,
   verifyToken,
+  GenerateAccessToken,
+  GenerateRefreshToken,
 };

@@ -55,6 +55,7 @@ model User {
   mobile    String
   password  String
   role      Role     @default(customer)
+  tokenVersion Int @default(0)
   createdAt DateTime @default(now())
 
   // Relations
@@ -69,6 +70,7 @@ model User {
   receivedNotifications      Notification[]            @relation("NotificationReceiver")
   sentNotifications          Notification[]            @relation("NotificationSender")
   providerSubscription       ProviderSubscription?
+  refreshTokens              RefreshToken[]
 
   @@index([email])
 }
@@ -81,6 +83,21 @@ model resetToken {
   userId    String
   token     String   @unique
   expiresAt DateTime
+}
+
+/**
+ * ---------------- REFRESH TOKEN MODEL ----------------
+ */
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 /**

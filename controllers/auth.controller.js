@@ -7,7 +7,12 @@ const {
   ForgotPasswordSchema,
   ResetPasswordSchema,
 } = require("../helper/validation/auth.validation");
-const { assignToken, verifyToken } = require("../helper/jwtToken");
+const {
+  assignToken,
+  verifyToken,
+  GenerateAccessToken,
+  GenerateRefreshToken,
+} = require("../helper/jwtToken");
 const { sendMail } = require("../utils/sendmail");
 
 /* ---------------- EMAIL TEMPLATES ---------------- */
@@ -78,14 +83,33 @@ const login = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Invalid email or password" });
 
-    const token = assignToken(user);
+    // Generate tokens
+    const accessToken = GenerateAccessToken(user);
+    const refreshToken = GenerateRefreshToken(user, user.tokenVersion);
 
-    res.cookie("token", token, {
-      httpOnly: false,
-      // secure: true,
-      secure: process.env.NODE_ENV === "development",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 1000,
+    // Store refresh token in database
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        token: refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      },
+    });
+
+    // Set cookies
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000, // 15 minutes
+      path: "/",
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: "/",
     });
 
@@ -93,7 +117,7 @@ const login = async (req, res) => {
       success: true,
       message: "Login Successfully",
       role: user.role,
-      token,
+      accessToken, // Also send in response for immediate use
     });
   } catch (err) {
     res.status(500).json({ success: false, message: "Server error" });
@@ -165,7 +189,15 @@ const resetPassword = async (req, res) => {
     const hashed = await bcrypt.hash(value.newPassword, 10);
     await prisma.user.update({
       where: { id: resetRecord.userId },
-      data: { password: hashed },
+      data: {
+        password: hashed,
+        tokenVersion: { increment: 1 } // Invalidate all refresh tokens
+      },
+    });
+
+    // Delete all refresh tokens for this user
+    await prisma.refreshToken.deleteMany({
+      where: { userId: resetRecord.userId },
     });
 
     await prisma.resetToken.delete({ where: { token } });
@@ -178,21 +210,127 @@ const resetPassword = async (req, res) => {
   }
 };
 
+/* ---------------- REFRESH TOKEN ---------------- */
+const refreshToken = async (req, res) => {
+  try {
+    const { refreshToken: token } = req.cookies;
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Refresh token not provided",
+      });
+    }
+
+    // Verify refresh token
+    const decoded = verifyToken(token);
+
+    if (decoded.type !== "refresh") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token type",
+      });
+    }
+
+    // Check if refresh token exists in database
+    const storedToken = await prisma.refreshToken.findUnique({
+      where: { token },
+      include: { user: true },
+    });
+
+    if (!storedToken || storedToken.expiresAt < new Date()) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired refresh token",
+      });
+    }
+
+    // Generate new tokens
+    const user = storedToken.user;
+    const newAccessToken = GenerateAccessToken(user);
+    const newRefreshToken = GenerateRefreshToken(user, user.tokenVersion);
+
+    // Delete old refresh token and create new one
+    await prisma.refreshToken.delete({ where: { token } });
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        token: newRefreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // Set new cookies
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+      path: "/",
+    });
+
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Tokens refreshed successfully",
+      accessToken: newAccessToken,
+    });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    res.status(401).json({
+      success: false,
+      message: "Invalid refresh token",
+    });
+  }
+};
+
 /* ---------------- LOGOUT ---------------- */
 const logout = async (req, res) => {
-  const token = req.cookies.token;
-  if (!token) {
-    return res.status(400).send({
-      success: false,
-      msg: "Login required",
+  const refreshToken = req.cookies.refreshToken;
+  if (refreshToken) {
+    // Delete refresh token from database
+    await prisma.refreshToken.deleteMany({
+      where: { token: refreshToken },
     });
   }
 
-  res.clearCookie("token");
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
 
   return res.status(200).json({
     success: true,
     msg: "Logout Successfully.",
+  });
+};
+
+/* ---------------- LOGOUT FROM ALL DEVICES ---------------- */
+const logoutAll = async (req, res) => {
+  const userId = req.user.id;
+
+  // Increment token version to invalidate all existing refresh tokens
+  await prisma.user.update({
+    where: { id: userId },
+    data: { tokenVersion: { increment: 1 } },
+  });
+
+  // Delete all refresh tokens for this user
+  await prisma.refreshToken.deleteMany({
+    where: { userId },
+  });
+
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
+
+  return res.status(200).json({
+    success: true,
+    msg: "Logged out from all devices successfully.",
   });
 };
 
@@ -201,5 +339,7 @@ module.exports = {
   login,
   forgotPassword,
   resetPassword,
+  refreshToken,
   logout,
+  logoutAll,
 };
