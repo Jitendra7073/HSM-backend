@@ -1039,15 +1039,17 @@ const updateBooking = async (req, res) => {
 
     await storeNotification(notificationPayload.title, notificationPayload.body, booking.userId, providerId);
     try {
-      const fcmTokens = await prisma.fcmToken.findFirst({
+      const fcmTokens = await prisma.fCMToken.findMany({
         where: { userId: booking.userId },
       });
 
-      await NotificationService.sendNotification(
-        fcmTokens,
-        notificationPayload.title,
-        notificationPayload.body,
-      );
+      if (fcmTokens.length > 0) {
+        await NotificationService.sendNotification(
+          fcmTokens,
+          notificationPayload.title,
+          notificationPayload.body,
+        );
+      }
     } catch (notifyErr) {
       console.error("Notification error:", notifyErr);
     }

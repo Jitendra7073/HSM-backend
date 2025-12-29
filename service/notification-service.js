@@ -1,5 +1,5 @@
-const admin = "../firebase/firebase.js";
-const prisma = "../prismaClient.js";
+const admin = require("../firebase/firebase.js");
+const prisma = require("../prismaClient.js");
 
 let fcmDisabled = false;
 

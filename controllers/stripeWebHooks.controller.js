@@ -297,6 +297,37 @@ const handleCheckoutCompleted = async (session) => {
     } catch (err) {
       console.error("Notification error:", err.message);
     }
+
+    // Notify customer about booking confirmation
+    const customerPayload = {
+      title: "Booking Confirmed",
+      body: `Your booking for ${services.map((s) => s.name).join(", ")} has been confirmed.`,
+      type: "BOOKING_CONFIRMED",
+    };
+
+    await storeNotification(
+      customerPayload.title,
+      customerPayload.body,
+      user.id,
+      provider.userId
+    );
+
+    try {
+      const customerFcmTokens = await prisma.fCMToken.findMany({
+        where: { userId: user.id },
+      });
+
+      if (customerFcmTokens.length > 0) {
+        await NotificationService.sendNotification(
+          customerFcmTokens,
+          customerPayload.title,
+          customerPayload.body,
+          { type: customerPayload.type }
+        );
+      }
+    } catch (err) {
+      console.error("Customer notification error:", err.message);
+    }
   } catch (error) {
     console.error("Error in handleCheckoutCompleted:", error.message);
   }
