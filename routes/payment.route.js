@@ -21,4 +21,10 @@ route.post(
     paymentRoute.seedProviderSubscriptionPlans
 );
 
+/* ---------------- GET PENDING PAYMENT BOOKINGS ---------------- */
+route.get(
+    "/pending-payments",
+    paymentRoute.getPendingPaymentBookings
+);
+
 module.exports = route;

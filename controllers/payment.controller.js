@@ -121,7 +121,7 @@ const customerPayment = async (req, res) => {
                 totalAmount: item.service.price, // Individual amount per booking
                 bookingStatus: "PENDING_PAYMENT",
                 paymentStatus: "PENDING",
-                expiresAt: new Date(Date.now() + 2 * 60 * 1000), // 2 min lock
+                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 2 min lock
               },
             });
 
@@ -177,6 +177,17 @@ const customerPayment = async (req, res) => {
       cancel_url: process.env.FRONTEND_CANCEL_URL,
     });
 
+    /* ---------- STORE PAYMENT LINK IN BOOKINGS ---------- */
+    await prisma.booking.updateMany({
+      where: {
+        id: { in: reservedBookings.map(b => b.id) },
+        bookingStatus: "PENDING_PAYMENT",
+      },
+      data: {
+        paymentLink: session.url,
+      },
+    });
+
     return res.json({ 
       url: session.url,
       bookingIds: reservedBookings.map(b => b.id),
@@ -202,7 +213,6 @@ const CleanupExpiredBookings = async () => {
       },
     });
 
-    console.log(`Cleaned up ${expired.count} expired bookings`);
     return expired.count;
   } catch (error) {
     console.error("Cleanup failed:", error);
@@ -310,9 +320,68 @@ const seedProviderSubscriptionPlans = async (req, res) => {
   }
 };
 
+/* ---------------- GET PENDING PAYMENT BOOKINGS ---------------- */
+const getPendingPaymentBookings = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const currentTime = new Date();
+
+    const pendingBookings = await prisma.booking.findMany({
+      where: {
+        userId,
+        bookingStatus: "PENDING_PAYMENT",
+        paymentStatus: "PENDING",
+        expiresAt: {
+          gt: currentTime, // Only show bookings that haven't expired yet
+        },
+        paymentLink: {
+          not: null, // Only show bookings with payment links
+        },
+      },
+      include: {
+        service: {
+          include: {
+            businessProfile: {
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
+        slot: true,
+        address: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    // Calculate remaining time for each booking
+    const bookingsWithTimeLeft = pendingBookings.map(booking => ({
+      ...booking,
+      timeLeftMinutes: Math.max(0, Math.floor((new Date(booking.expiresAt) - currentTime) / (1000 * 60))),
+      timeLeftSeconds: Math.max(0, Math.floor((new Date(booking.expiresAt) - currentTime) / 1000) % 60),
+    }));
+
+    return res.status(200).json({
+      success: true,
+      message: "Pending payment bookings retrieved successfully",
+      bookings: bookingsWithTimeLeft,
+    });
+  } catch (error) {
+    console.error("Get pending payments error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve pending payments",
+    });
+  }
+};
+
 module.exports = {
   customerPayment,
   providerSubscriptionCheckout,
   seedProviderSubscriptionPlans,
-  CleanupExpiredBookings
+  CleanupExpiredBookings,
+  getPendingPaymentBookings
 };

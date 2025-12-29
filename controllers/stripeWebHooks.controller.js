@@ -156,6 +156,7 @@ const handleCheckoutCompleted = async (session) => {
             data: {
               paymentStatus: "PAID",
               bookingStatus: "CONFIRMED",
+              paymentLink: null, // Clear payment link since payment is complete
               expiresAt: null, // Remove expiration
             },
           });
@@ -285,6 +286,7 @@ const handleCheckoutCompleted = async (session) => {
       const fcmTokens = await prisma.fCMToken.findMany({
         where: { userId: provider.userId },
       });
+      console.log("fcm Tokens of the provider:",fcmTokens)
 
       if (fcmTokens.length > 0) {
         await NotificationService.sendNotification(

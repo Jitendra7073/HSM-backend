@@ -240,6 +240,7 @@ model Booking {
   paymentStatus     PaymentStatus @default(PENDING)
   bookingStatus     BookingStatus @default(PENDING)
   date              String
+  paymentLink       String?       // Stripe checkout URL for payment recovery
   isFeedbackProvided  Boolean      @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt

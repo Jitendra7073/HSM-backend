@@ -154,6 +154,8 @@ const getCustomerBookings = async (req, res) => {
   const customerId = req.user.id;
 
   try {
+    const currentTime = new Date();
+    
     const bookings = await prisma.booking.findMany({
       where: { userId: customerId },
 
@@ -185,17 +187,42 @@ const getCustomerBookings = async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    // Format business fields cleanly
-    const formatted = bookings.map((b) => ({
-      ...b,
-      business: {
-        id: b.businessProfile?.id,
-        name: b.businessProfile?.businessName,
-        email: b.businessProfile?.user?.email,
-        phone: b.businessProfile?.user?.mobile,
-      },
-      businessProfile: undefined, // remove duplicate
-    }));
+    // Format business fields cleanly and add payment link info
+    const formatted = bookings.map((b) => {
+      let paymentLinkInfo = null;
+      
+      // Only show payment link for pending payments that haven't expired
+      if (
+        b.bookingStatus === "PENDING_PAYMENT" && 
+        b.paymentStatus === "PENDING" &&
+        b.paymentLink &&
+        b.expiresAt &&
+        new Date(b.expiresAt) > currentTime
+      ) {
+        const timeLeftMs = new Date(b.expiresAt) - currentTime;
+        const timeLeftMinutes = Math.floor(timeLeftMs / (1000 * 60));
+        const timeLeftSeconds = Math.floor((timeLeftMs % (1000 * 60)) / 1000);
+        
+        paymentLinkInfo = {
+          url: b.paymentLink,
+          timeLeftMinutes,
+          timeLeftSeconds,
+          expiresAt: b.expiresAt,
+        };
+      }
+
+      return {
+        ...b,
+        business: {
+          id: b.businessProfile?.id,
+          name: b.businessProfile?.businessName,
+          email: b.businessProfile?.user?.email,
+          phone: b.businessProfile?.user?.mobile,
+        },
+        paymentLinkInfo, // Include payment link info if available
+        businessProfile: undefined, // remove duplicate
+      };
+    });
 
     return res.status(200).json({
       success: true,
