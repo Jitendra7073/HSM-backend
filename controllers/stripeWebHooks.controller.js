@@ -15,7 +15,7 @@ const {
 } = require("../helper/mail-tamplates/tamplates");
 
 const NotificationService = require("../service/notification-service");
-const { StoreNotification } = require("./notification.controller");
+const { storeNotification } = require("./notification.controller");
 
 /* ---------------------------- STRIPE WEBHOOK HANDLER ---------------------------- */
 
@@ -69,7 +69,8 @@ const stripeWebhookHandler = async (req, res) => {
 /* --------------------------- CUSTOMER PAYMENT SUCCESS --------------------------- */
 
 const handleCheckoutCompleted = async (session) => {
-  const { userId, addressId, paymentId, bookingIds, dbCart } = session.metadata || {};
+  const { userId, addressId, paymentId, bookingIds, dbCart } =
+    session.metadata || {};
 
   if (!userId || !addressId || !paymentId || !bookingIds || !dbCart) {
     console.error("Missing metadata in webhook:", session.metadata);
@@ -96,7 +97,9 @@ const handleCheckoutCompleted = async (session) => {
 
     // Fetch user and address
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    const address = await prisma.address.findUnique({ where: { id: addressId } });
+    const address = await prisma.address.findUnique({
+      where: { id: addressId },
+    });
 
     if (!user || !address) {
       console.error("User or address not found");
@@ -138,7 +141,7 @@ const handleCheckoutCompleted = async (session) => {
               bookingStatus: "PENDING_PAYMENT",
               paymentStatus: "PENDING",
               expiresAt: {
-                gt: new Date(), 
+                gt: new Date(),
               },
             },
           });
@@ -182,7 +185,6 @@ const handleCheckoutCompleted = async (session) => {
         timeout: 10000,
       }
     );
-
 
     /* ---------------- SEND EMAIL WITH INVOICE ---------------- */
     try {
@@ -245,36 +247,44 @@ const handleCheckoutCompleted = async (session) => {
           },
         ],
       });
-
     } catch (err) {
       console.error("Failed to send invoice email:", err.message);
     }
 
     /* ---------------- SEND PUSH NOTIFICATION TO PROVIDER ---------------- */
+    const provider = await prisma.businessProfile.findUnique({
+      where: { id: result[0].businessProfileId },
+      select: { userId: true },
+    });
+
+    if (!provider) {
+      console.error("Provider not found");
+      return;
+    }
+
+    const services = await prisma.service.findMany({
+      where: { id: { in: result.map((r) => r.serviceId) } },
+    });
+
+    const payload = {
+      title: "New Booking Received",
+      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${
+        user.name
+      }`,
+      type: "BOOKING_CREATED",
+    };
+
+    await storeNotification(
+      payload.title,
+      payload.body,
+      provider.userId,
+      user.id
+    );
+
     try {
-      const provider = await prisma.businessProfile.findUnique({
-        where: { id: result[0].businessProfileId },
-        select: { userId: true },
-      });
-
-      if (!provider) {
-        console.error("Provider not found");
-        return;
-      }
-
       const fcmTokens = await prisma.fCMToken.findMany({
         where: { userId: provider.userId },
       });
-
-      const services = await prisma.service.findMany({
-        where: { id: { in: result.map((r) => r.serviceId) } },
-      });
-
-      const payload = {
-        title: "New Booking Received",
-        body: `New booking for ${services.map((s) => s.name).join(", ")} by ${user.name}`,
-        type: "BOOKING_CREATED",
-      };
 
       if (fcmTokens.length > 0) {
         await NotificationService.sendNotification(
@@ -284,8 +294,6 @@ const handleCheckoutCompleted = async (session) => {
           { type: payload.type }
         );
       }
-
-      await StoreNotification(payload, provider.userId, user.id);
     } catch (err) {
       console.error("Notification error:", err.message);
     }

@@ -63,9 +63,8 @@ const storeFcmTokenService = async ({ userId, token }) => {
 /* ---------------- STORE FCM TOKEN API ---------------- */
 const storeFcmToken = async (req, res) => {
   try {
-    const userId = req.user?.id; 
-     const token = req.headers["x-fcm-token"];
-
+    const userId = req.user?.id;
+    const token = req.headers["x-fcm-token"];
 
     if (!userId) {
       return res.status(401).json({
@@ -91,7 +90,7 @@ const storeFcmToken = async (req, res) => {
 };
 
 /* ---------------- STORE NOTIFICATION ---------------- */
-const storeNotification = async ({ title, body, receiverId, senderId }) => {
+const storeNotification = async (title, body, receiverId, senderId) => {
   if (!title || !body || !receiverId) return;
 
   try {

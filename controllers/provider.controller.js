@@ -8,7 +8,7 @@ const {
   serviceProfileSchema,
   teamMemberSchema,
 } = require("../helper/validation/provider.validation");
-const { StoreNotification } = require("./notification.controller");
+const { storeNotification } = require("./notification.controller");
 
 /* ---------------- BUSINESS ---------------- */
 const createBusiness = async (req, res) => {
@@ -1037,9 +1037,9 @@ const updateBooking = async (req, res) => {
       type: "BOOKING_STATUS_UPDATED",
     };
 
-    await StoreNotification(notificationPayload, booking.userId, providerId);
+    await storeNotification(notificationPayload.title, notificationPayload.body, booking.userId, providerId);
     try {
-      const fcmTokens = await prisma.fcmToken.findMany({
+      const fcmTokens = await prisma.fcmToken.findFirst({
         where: { userId: booking.userId },
       });
 
@@ -1047,7 +1047,6 @@ const updateBooking = async (req, res) => {
         fcmTokens,
         notificationPayload.title,
         notificationPayload.body,
-        { type: notificationPayload.type }
       );
     } catch (notifyErr) {
       console.error("Notification error:", notifyErr);
