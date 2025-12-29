@@ -44,6 +44,9 @@ const CustomerRoute = require("./routes/customer.route");
 const ProviderRoute = require("./routes/provider.route");
 const NotificationRoute = require("./routes/notification.route");
 
+/* ---------------- SCHEDULER IMPORTS ---------------- */
+const { startBookingCleanupJob, startTokenCleanupJob } = require("./controllers/scheduler/bookingCleanUp");
+
 /* ---------------- PUBLIC ROUTE ---------------- */
 app.use("/auth", AuthRoutes);
 app.use("/api/v1", CommonRoute);
@@ -57,4 +60,11 @@ app.use("/api/v1/provider", RoleBasedAccess("provider"), ProviderRoute);
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  
+  /* ---------------- START SCHEDULER JOBS ---------------- */
+  startBookingCleanupJob();
+  console.log("Booking cleanup job started - runs every 30 seconds");
+  
+  startTokenCleanupJob();
+  console.log("Token cleanup job started - runs every hour");
 });
