@@ -1,20 +1,44 @@
 const BASE_URL = process.env.CLIENT_URL;
+const HSM_LOGO =
+  "https://res.cloudinary.com/dotm2ownb/image/upload/v1767090471/HSM-logo_mvqexc.png";
 
 /* ---------------- WELCOME USER ---------------- */
 function welcomeUserTamplate(userName) {
   const ExploreServicesURL = `${BASE_URL}/customer/explore`;
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8" />
   <title>Welcome to HSM</title>
 </head>
 
-<body style="margin:0; padding:0; background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+<body
+  style="
+    margin:0;
+    padding:0;
+    background-color:#ffffff;
+    font-family:Arial, Helvetica, sans-serif;
+    color:#1f2937;
+  "
+>
 
   <!-- Main Content -->
   <main style="padding:32px; max-width:720px;">
+
+    <!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
+
+    <!-- Greeting -->
     <p style="margin:0 0 12px 0; font-size:14px;">
       Hi <strong>${userName}</strong>,
     </p>
@@ -31,10 +55,19 @@ function welcomeUserTamplate(userName) {
 
     <!-- CTA -->
     <p style="margin:24px 0;">
-      <a href="${ExploreServicesURL}"
-         style="display:inline-block; padding:10px 16px;
-         background-color:#2563eb; color:#ffffff;
-         text-decoration:none; font-size:14px; font-weight:600; border-radius:4px;">
+      <a
+        href="${ExploreServicesURL}"
+        style="
+          display:inline-block;
+          padding:10px 16px;
+          background-color:#2563eb;
+          color:#ffffff;
+          text-decoration:none;
+          font-size:14px;
+          font-weight:600;
+          border-radius:4px;
+        "
+      >
         Explore Services
       </a>
     </p>
@@ -44,19 +77,31 @@ function welcomeUserTamplate(userName) {
     </p>
 
     <p style="margin:0; font-size:13px;">
-      <a href="mailto:hsm@support.com" style="color:#2563eb; text-decoration:none;">
+      <a
+        href="mailto:hsm@support.com"
+        style="color:#2563eb; text-decoration:none;"
+      >
         hsm@support.com
       </a>
     </p>
+
   </main>
 
   <!-- Footer -->
-  <footer style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+  <footer
+    style="
+      padding:24px 32px;
+      border-top:1px solid #e5e7eb;
+      font-size:12px;
+      color:#6b7280;
+    "
+  >
     © ${new Date().getFullYear()} HSM. All rights reserved.
   </footer>
 
 </body>
 </html>
+
   `;
 }
 
@@ -76,6 +121,18 @@ const forgotPasswordTamplate = (name, token) => {
 
   <!-- Main Content -->
   <main style="padding:32px; max-width:720px;">
+  <!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
     <p style="margin:0 0 12px 0; font-size:14px;">
       Hello <strong>${name}</strong>,
     </p>
@@ -143,6 +200,18 @@ function bookingSuccessEmailTemplate({
 
 <body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
+<!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
     <tr>
       <td style="padding:24px;">
@@ -280,11 +349,7 @@ function bookingSuccessEmailTemplate({
 }
 
 /* ---------------- BOOKING FAILED EMAIL ---------------- */
-function bookingFailedEmailTemplate({
-  userName,
-  services,
-  businessName,
-}) {
+function bookingFailedEmailTemplate({ userName, services, businessName }) {
   return `
 <!DOCTYPE html>
 <html>
@@ -295,6 +360,18 @@ function bookingFailedEmailTemplate({
 
 <body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
+<!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
     <tr>
       <td style="padding:24px;">
@@ -412,12 +489,12 @@ function providerSubscriptionSuccessEmailTemplate({
   subscriptionStart,
   subscriptionEnd,
 }) {
-    const subStart = new Date(subscriptionStart).toLocaleDateString("en-IN", {
+  const subStart = new Date(subscriptionStart).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
-    const subEnd = new Date(subscriptionEnd).toLocaleDateString("en-IN", {
+  const subEnd = new Date(subscriptionEnd).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -432,6 +509,18 @@ function providerSubscriptionSuccessEmailTemplate({
 
 <body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
 
+<!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
     <tr>
       <td style="padding:24px;">
@@ -539,7 +628,6 @@ function providerSubscriptionSuccessEmailTemplate({
 </html>
   `;
 }
-
 
 module.exports = {
   welcomeUserTamplate,

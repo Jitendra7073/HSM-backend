@@ -214,7 +214,7 @@ const deleteAddress = async (req, res) => {
   } catch (error) {
     return res.status(500).json({
       success: false,
-      msg: "Server error while deleting address.",
+      msg: "Unable to delete it, processed with other!",
     });
   }
 };

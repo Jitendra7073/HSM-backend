@@ -180,6 +180,9 @@ const handleCheckoutCompleted = async (session) => {
           where: { id: { in: cartIds }, userId },
         });
 
+        await tx.customerPayment.deleteMany({
+          where: { status: "PENDING" },
+        });
         return confirmedBookings;
       },
       {
@@ -286,7 +289,7 @@ const handleCheckoutCompleted = async (session) => {
       const fcmTokens = await prisma.fCMToken.findMany({
         where: { userId: provider.userId },
       });
-      console.log("fcm Tokens of the provider:",fcmTokens)
+      console.log("fcm Tokens of the provider:", fcmTokens);
 
       if (fcmTokens.length > 0) {
         await NotificationService.sendNotification(
@@ -303,7 +306,9 @@ const handleCheckoutCompleted = async (session) => {
     // Notify customer about booking confirmation
     const customerPayload = {
       title: "Booking Confirmed",
-      body: `Your booking for ${services.map((s) => s.name).join(", ")} has been confirmed.`,
+      body: `Your booking for ${services
+        .map((s) => s.name)
+        .join(", ")} has been confirmed.`,
       type: "BOOKING_CONFIRMED",
     };
 
@@ -497,6 +502,9 @@ const handlePaymentFailed = async (intent) => {
   await prisma.customerPayment.update({
     where: { id: paymentId },
     data: { status: "FAILED" },
+  });
+  await tx.customerPayment.deleteMany({
+    where: { status: "PENDING" },
   });
 
   const user = await prisma.user.findUnique({ where: { id: userId } });

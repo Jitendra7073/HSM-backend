@@ -121,7 +121,7 @@ const customerPayment = async (req, res) => {
                 totalAmount: item.service.price, // Individual amount per booking
                 bookingStatus: "PENDING_PAYMENT",
                 paymentStatus: "PENDING",
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 2 min lock
+                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
               },
             });
 

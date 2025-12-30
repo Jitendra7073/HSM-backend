@@ -114,6 +114,7 @@ const getProviderById = async (req, res) => {
                 images: true,
                 averageRating: true,
                 reviewCount: true,
+                totalBookingAllow:true,
                 isActive: true,
                 feedback: true,
               },
@@ -148,14 +149,13 @@ const getProviderById = async (req, res) => {
   }
 };
 
-// CUSTOMER BOOKINGS
 /* ---------------- GET CUSTOMER BOOKINGS ---------------- */
 const getCustomerBookings = async (req, res) => {
   const customerId = req.user.id;
 
   try {
     const currentTime = new Date();
-    
+
     const bookings = await prisma.booking.findMany({
       where: { userId: customerId },
 
@@ -187,13 +187,12 @@ const getCustomerBookings = async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    // Format business fields cleanly and add payment link info
     const formatted = bookings.map((b) => {
       let paymentLinkInfo = null;
-      
+
       // Only show payment link for pending payments that haven't expired
       if (
-        b.bookingStatus === "PENDING_PAYMENT" && 
+        b.bookingStatus === "PENDING_PAYMENT" &&
         b.paymentStatus === "PENDING" &&
         b.paymentLink &&
         b.expiresAt &&
@@ -202,7 +201,7 @@ const getCustomerBookings = async (req, res) => {
         const timeLeftMs = new Date(b.expiresAt) - currentTime;
         const timeLeftMinutes = Math.floor(timeLeftMs / (1000 * 60));
         const timeLeftSeconds = Math.floor((timeLeftMs % (1000 * 60)) / 1000);
-        
+
         paymentLinkInfo = {
           url: b.paymentLink,
           timeLeftMinutes,
@@ -219,8 +218,8 @@ const getCustomerBookings = async (req, res) => {
           email: b.businessProfile?.user?.email,
           phone: b.businessProfile?.user?.mobile,
         },
-        paymentLinkInfo, // Include payment link info if available
-        businessProfile: undefined, // remove duplicate
+        paymentLinkInfo,
+        businessProfile: undefined,
       };
     });
 
@@ -244,7 +243,7 @@ const cancelBooking = async (req, res) => {
 
   try {
     const booking = await prisma.Booking.findUnique({
-      where: { id: bookingId }, // Fetch related slot + payment
+      where: { id: bookingId },
     });
 
     // Validate booking ownership
@@ -262,7 +261,7 @@ const cancelBooking = async (req, res) => {
       });
     }
 
-    // 1️⃣ Update booking status to CANCELLED
+    // Update booking status to CANCELLED
     await prisma.Booking.update({
       where: { id: bookingId },
       data: {
@@ -277,7 +276,7 @@ const cancelBooking = async (req, res) => {
       data: { isBooked: false, bookedById: null },
     });
 
-    // 2️⃣ Update payment record (if exists)
+    // Update payment record
     if (booking.payment) {
       await prisma.CustomerPayment.update({
         where: { id: booking.payment.id },
@@ -541,7 +540,6 @@ const giveFeedback = async (req, res) => {
     abortEarly: false,
   });
 
-
   if (error) {
     return res.status(422).json({
       success: false,
@@ -554,10 +552,10 @@ const giveFeedback = async (req, res) => {
   try {
     /* ---------------- USER INFORMATION ---------------- */
     const user = await prisma.user.findUnique({
-      where:{
-        id:userId
-      }
-    })
+      where: {
+        id: userId,
+      },
+    });
 
     /* ---------------- BOOKING CHECK ---------------- */
     const booking = await prisma.booking.findUnique({
@@ -607,8 +605,8 @@ const giveFeedback = async (req, res) => {
           userId,
           serviceId: booking.serviceId,
           bookingId,
-          username:user.name,
-          servicename:booking.service.name,
+          username: user.name,
+          servicename: booking.service.name,
           rating,
           comment,
         },
