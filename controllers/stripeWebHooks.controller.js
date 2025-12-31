@@ -81,20 +81,6 @@ const handleCheckoutCompleted = async (session) => {
     const cartIds = JSON.parse(dbCart);
     const bookingIdList = JSON.parse(bookingIds);
 
-    // Check if payment already processed (idempotency)
-    const payment = await prisma.customerPayment.findUnique({
-      where: { id: paymentId },
-    });
-
-    if (!payment) {
-      console.error(`Payment record ${paymentId} not found`);
-      return;
-    }
-
-    if (payment.status === "PAID") {
-      return;
-    }
-
     // Fetch user and address
     const user = await prisma.user.findUnique({ where: { id: userId } });
     const address = await prisma.address.findUnique({
@@ -130,6 +116,34 @@ const handleCheckoutCompleted = async (session) => {
     /* --------------------------- CONFIRM BOOKINGS --------------------------- */
     const result = await prisma.$transaction(
       async (tx) => {
+        // Idempotency check: verify payment hasn't been processed
+        const payment = await tx.customerPayment.findUnique({
+          where: { id: paymentId },
+        });
+
+        if (!payment) {
+          throw new Error(`Payment record ${paymentId} not found`);
+        }
+
+        if (payment.status === "PAID") {
+          console.log(`Payment ${paymentId} already processed, skipping notifications`);
+          return null; // Return null to signal that processing was skipped
+        }
+
+        // Also check if any bookings are already confirmed
+        const existingConfirmed = await tx.booking.findFirst({
+          where: {
+            id: { in: bookingIdList },
+            bookingStatus: "CONFIRMED",
+            paymentStatus: "PAID",
+          },
+        });
+
+        if (existingConfirmed) {
+          console.log(`Booking ${existingConfirmed.id} already confirmed, skipping notifications`);
+          return null; // Return null to signal that processing was skipped
+        }
+
         const confirmedBookings = [];
 
         for (const bookingId of bookingIdList) {
@@ -189,6 +203,12 @@ const handleCheckoutCompleted = async (session) => {
         timeout: 10000,
       }
     );
+
+    // If transaction returned null, payment was already processed - skip notifications
+    if (!result || result.length === 0) {
+      console.log(`Payment ${paymentId} already processed, exiting webhook handler`);
+      return;
+    }
 
     /* ---------------- SEND EMAIL WITH INVOICE ---------------- */
     try {
@@ -296,7 +316,10 @@ const handleCheckoutCompleted = async (session) => {
           fcmTokens,
           payload.title,
           payload.body,
-          { type: payload.type }
+          {
+            type: payload.type,
+            tag: `provider_booking_${paymentId}`
+          }
         );
       }
     } catch (err) {
@@ -329,7 +352,10 @@ const handleCheckoutCompleted = async (session) => {
           customerFcmTokens,
           customerPayload.title,
           customerPayload.body,
-          { type: customerPayload.type }
+          {
+            type: customerPayload.type,
+            tag: `customer_booking_${paymentId}`
+          }
         );
       }
     } catch (err) {

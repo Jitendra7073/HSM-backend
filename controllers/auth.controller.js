@@ -155,7 +155,7 @@ const forgotPassword = async (req, res) => {
     });
     res.status(200).json({
       success: true,
-      message: `Reset link Sended Successfully to ${value.email}`,
+      message: `Reset link Sent Successfully to ${value.email}`,
       token,
     });
   } catch (err) {
