@@ -691,7 +691,7 @@ const deleteService = async (req, res) => {
 };
 
 /* ---------------- SLOTS ---------------- */
-const createSlot = async (req, res) => {
+const generateSlots = async (req, res) => {
   const userId = req.user.id;
 
   try {
@@ -792,6 +792,55 @@ const createSlot = async (req, res) => {
     });
   }
 };
+
+const createSingleSlot = async (req, res) => {
+  const userId = req.user.id;
+  const { time } = req.body;
+  try {
+    // Check if provider's business profile exists
+    const business = await prisma.BusinessProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        msg: "Business profile not found for this user.",
+      });
+    }
+
+    // Check if a slot with the same time already exists for this business
+    const existingSlot = await prisma.Slot.findFirst({  
+      where: {
+        time,
+        businessProfileId: business.id,
+      },
+    });
+
+    if(existingSlot){
+      return res.status(400).json({
+        success: false,
+        msg: "A slot with this time already exists for your business.",
+      });
+    }
+
+    // Create the new slot
+    const newSlot = await prisma.Slot.create({
+      data:{
+        time,
+        businessProfileId: business.id,
+      }
+    })
+
+    return res.status(201).json({
+      success: true,
+      msg: "Slot created successfully.",
+      slot: newSlot,
+    });
+  } catch (error) {
+    
+  }
+}
 
 const getAllSlots = async (req, res) => {
   const userId = req.user.id;
@@ -1324,7 +1373,8 @@ module.exports = {
   deleteService,
 
   // SLOTS
-  createSlot,
+  generateSlots,
+  createSingleSlot,
   getAllSlots,
   deleteSlot,
 

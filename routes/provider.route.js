@@ -25,7 +25,8 @@ route
 route
   .route("/slots")
   .get(ProviderController.getAllSlots)
-  .post(ProviderController.createSlot);
+  .post(ProviderController.generateSlots);
+route.post("/slot/create", ProviderController.createSingleSlot);
 route.delete("/slot/:slotId", ProviderController.deleteSlot);
 
 /* ---------------- BOOKING ROUTE ---------------- */
@@ -43,7 +44,6 @@ route.get("/dashboard/stats", ProviderController.getDashboardStats);
 
 /* ---------------- SERVICE FEEDBACK  ---------------- */
 route.get("/service-feedback", ProviderController.getAllFeedbacks);
-// route.patch("/service-feedback/:feedbackId", ProviderController.updateServiceFeedbackStatus);
 
 /* ----------------- SUBSCTION DATA ----------------- */
 route.get("/subscription-plans", ProviderController.getAllSubscriptionPlans);
