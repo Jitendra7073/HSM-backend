@@ -110,7 +110,6 @@ const customerPayment = async (req, res) => {
                 }`
               );
             }
-            await new Promise((r) => setTimeout(r, 5000));
 
             // Create booking reservation
             const booking = await tx.booking.create({
