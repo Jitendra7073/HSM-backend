@@ -69,7 +69,7 @@ const customerPayment = async (req, res) => {
 
     /* --------------------------- SLOT RESERVATION WITH LOCKING --------------------------- */
     let reservedBookings;
-    
+
     try {
       reservedBookings = await prisma.$transaction(
         async (tx) => {
@@ -105,7 +105,9 @@ const customerPayment = async (req, res) => {
             // CHECK IF SLOT IS FULL
             if (count >= service.totalBookingAllow) {
               throw new Error(
-                `Slot ${item.slot?.time || "Unknown"} is full for ${item.service.name}`
+                `Slot ${item.slot?.time || "Unknown"} is full for ${
+                  item.service.name
+                }`
               );
             }
             await new Promise((r) => setTimeout(r, 5000));
@@ -132,16 +134,15 @@ const customerPayment = async (req, res) => {
           return bookings;
         },
         {
-          isolationLevel: "Serializable", 
+          isolationLevel: "Serializable",
           timeout: 10000, // 10 second timeout
         }
       );
     } catch (transactionError) {
       console.error("Slot reservation failed:", transactionError.message);
-      
-      // Return user-friendly error
+
       return res.status(409).json({
-        msg: transactionError.message || "Slot reservation failed. Please try again.",
+        msg: "This time slot was just booked by someone else. Please choose another available slot.",
       });
     }
 
@@ -164,7 +165,7 @@ const customerPayment = async (req, res) => {
         addressId,
         paymentId: paymentRecord.id,
         bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
-        dbCart: JSON.stringify(cartItems), 
+        dbCart: JSON.stringify(cartItems),
       },
       line_items: dbCart.map((item) => ({
         price_data: {
@@ -181,7 +182,7 @@ const customerPayment = async (req, res) => {
     /* ---------- STORE PAYMENT LINK IN BOOKINGS ---------- */
     await prisma.booking.updateMany({
       where: {
-        id: { in: reservedBookings.map(b => b.id) },
+        id: { in: reservedBookings.map((b) => b.id) },
         bookingStatus: "PENDING_PAYMENT",
       },
       data: {
@@ -189,11 +190,10 @@ const customerPayment = async (req, res) => {
       },
     });
 
-    return res.json({ 
+    return res.json({
       url: session.url,
-      bookingIds: reservedBookings.map(b => b.id),
+      bookingIds: reservedBookings.map((b) => b.id),
     });
-    
   } catch (err) {
     console.error("Payment initiation error:", err.message);
     return res.status(500).json({
@@ -359,10 +359,16 @@ const getPendingPaymentBookings = async (req, res) => {
     });
 
     // Calculate remaining time for each booking
-    const bookingsWithTimeLeft = pendingBookings.map(booking => ({
+    const bookingsWithTimeLeft = pendingBookings.map((booking) => ({
       ...booking,
-      timeLeftMinutes: Math.max(0, Math.floor((new Date(booking.expiresAt) - currentTime) / (1000 * 60))),
-      timeLeftSeconds: Math.max(0, Math.floor((new Date(booking.expiresAt) - currentTime) / 1000) % 60),
+      timeLeftMinutes: Math.max(
+        0,
+        Math.floor((new Date(booking.expiresAt) - currentTime) / (1000 * 60))
+      ),
+      timeLeftSeconds: Math.max(
+        0,
+        Math.floor((new Date(booking.expiresAt) - currentTime) / 1000) % 60
+      ),
     }));
 
     return res.status(200).json({
@@ -384,5 +390,5 @@ module.exports = {
   providerSubscriptionCheckout,
   seedProviderSubscriptionPlans,
   CleanupExpiredBookings,
-  getPendingPaymentBookings
+  getPendingPaymentBookings,
 };
