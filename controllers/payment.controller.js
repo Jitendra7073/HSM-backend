@@ -108,6 +108,7 @@ const customerPayment = async (req, res) => {
                 `Slot ${item.slot?.time || "Unknown"} is full for ${item.service.name}`
               );
             }
+            await new Promise((r) => setTimeout(r, 10000));
 
             // Create booking reservation
             const booking = await tx.booking.create({
