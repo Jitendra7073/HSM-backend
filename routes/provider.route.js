@@ -33,6 +33,8 @@ route.delete("/slot/:slotId", ProviderController.deleteSlot);
 route.get("/booking", ProviderController.bookingList);
 route.patch("/booking/:bookingId", ProviderController.updateBooking);
 
+route.get("/booking/cancellations", ProviderController.GetAllCancellationBookings);
+
 /* ---------------- BUSINESS CATEGORY ROUTE ---------------- */
 route
   .route("/business-category")

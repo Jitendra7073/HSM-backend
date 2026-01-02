@@ -57,7 +57,7 @@ const customerPayment = async (req, res) => {
 
     if (alreadyBooked) {
       return res.status(400).json({
-        msg: `You already booked a slot for ${alreadyBooked.date}`,
+        msg: `You already booked a slot for ${alreadyBooked.date.split("T")[0]}. Please choose another slot.`,
       });
     }
 

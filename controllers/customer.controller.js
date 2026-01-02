@@ -6,6 +6,8 @@ const { sendMail } = require("../utils/sendmail");
 const {
   FeedbackValidation,
 } = require("../helper/validation/feedback.validation");
+const NotificationService = require("../service/notification-service");
+const { storeNotification } = require("./notification.controller");
 
 /* ---------------- GET ALL PROVIDERS ---------------- */
 const getAllProviders = async (req, res) => {
@@ -114,7 +116,7 @@ const getProviderById = async (req, res) => {
                 images: true,
                 averageRating: true,
                 reviewCount: true,
-                totalBookingAllow:true,
+                totalBookingAllow: true,
                 isActive: true,
                 feedback: true,
               },
@@ -239,60 +241,221 @@ const getCustomerBookings = async (req, res) => {
 /* ---------------- CANCEL BOOKING ---------------- */
 const cancelBooking = async (req, res) => {
   const customerId = req.user.id;
-  const { bookingId } = req.body;
+  const { bookingId, reason, reasonType } = req.body;
+
+  if (!bookingId || !reason || !reasonType) {
+    return res.status(400).json({
+      success: false,
+      msg: "Booking ID, reason and reason type are required.",
+    });
+  }
 
   try {
     const booking = await prisma.Booking.findUnique({
       where: { id: bookingId },
-    });
-
-    // Validate booking ownership
-    if (!booking || booking.userId !== customerId) {
-      return res
-        .status(404)
-        .json({ success: false, msg: "Booking not found or not yours." });
-    }
-
-    // Only allow cancelling pending bookings
-    if (booking.bookingStatus !== "PENDING") {
-      return res.status(400).json({
-        success: false,
-        msg: `Cannot cancel a ${booking.bookingStatus.toLowerCase()} booking.`,
-      });
-    }
-
-    // Update booking status to CANCELLED
-    await prisma.Booking.update({
-      where: { id: bookingId },
-      data: {
-        bookingStatus: "CANCELLED",
-        paymentStatus: "CANCELLED",
-        updatedAt: new Date(),
+      include: {
+        service: true,
+        businessProfile: {
+          include: { user: true },
+        },
+        cancellation: true,
       },
     });
 
-    await prisma.Slot.update({
-      where: { id: booking.slotId },
-      data: { isBooked: false, bookedById: null },
-    });
-
-    // Update payment record
-    if (booking.payment) {
-      await prisma.CustomerPayment.update({
-        where: { id: booking.payment.id },
-        data: {
-          status: "CANCELLED",
-        },
+    if (!booking || booking.userId !== customerId) {
+      return res.status(404).json({
+        success: false,
+        msg: "Booking not found or not owned by you.",
       });
     }
 
-    return res
-      .status(200)
-      .json({ success: true, msg: "Booking cancelled successfully." });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ success: false, msg: "Could not cancel booking." });
+    /* ---------------- HARD STOPS ---------------- */
+    if (booking.bookingStatus === "COMPLETED") {
+      return res.status(400).json({
+        success: false,
+        msg: "Completed bookings cannot be cancelled.",
+      });
+    }
+
+    if (
+      booking.bookingStatus === "CANCELLED" ||
+      booking.bookingStatus === "CANCEL_REQUESTED"
+    ) {
+      return res.status(409).json({
+        success: false,
+        msg: "Cancellation already processed.",
+      });
+    }
+
+    /* 
+       → Immediate cancellation
+     */
+    if (
+      booking.bookingStatus === "PENDING" ||
+      booking.bookingStatus === "PENDING_PAYMENT"
+    ) {
+      await prisma.$transaction(async (tx) => {
+        await tx.Cancellation.create({
+          data: {
+            bookingId: booking.id,
+            requestedById: customerId,
+            reason,
+            reasonType,
+            status: "CANCELLED",
+            refundStatus:
+              booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
+            refundedAt:
+              booking.paymentStatus === "PAID" ? new Date() : null,
+          },
+        });
+
+        await tx.Booking.update({
+          where: { id: booking.id },
+          data: {
+            bookingStatus: "CANCELLED",
+            paymentStatus:
+              booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
+          },
+        });
+      });
+
+      /* -------- NOTIFY CUSTOMER -------- */
+      const payload = {
+        title: "Booking Cancelled",
+        body: `Your booking for ${booking.service.name} has been cancelled successfully.`,
+        type: "BOOKING_CANCELLED",
+      };
+
+      await storeNotification(
+        payload.title,
+        payload.body,
+        customerId,
+        customerId
+      );
+
+      return res.status(200).json({
+        success: true,
+        msg: "Booking cancelled successfully.",
+      });
+    }
+
+    /* 
+       → Cancellation request
+     */
+    if (booking.bookingStatus === "CONFIRMED") {
+
+      if(booking.createdAt.getTime() + 12*60*60*1000 < Date.now()){
+        return res.status(400).json({
+          success: false,
+          msg: "Cancellations can only be requested within 12 hours of booking confirmation.",
+        });
+      }
+
+      await prisma.$transaction(async (tx) => {
+        await tx.Cancellation.create({
+          data: {
+            bookingId: booking.id,
+            requestedById: customerId,
+            reason,
+            reasonType,
+            status: "CANCEL_REQUESTED",
+            refundStatus: "PENDING",
+          },
+        });
+
+        await tx.Booking.update({
+          where: { id: booking.id },
+          data: {
+            bookingStatus: "CANCEL_REQUESTED",
+          },
+        });
+      });
+
+      /* -------- NOTIFY PROVIDER -------- */
+      const provider = booking.businessProfile.user;
+
+      const providerPayload = {
+        title: "Cancellation Request Received",
+        body: `A customer has requested to cancel the booking for ${booking.service.name}. Please review within 7 days.`,
+        type: "CANCELLATION_REQUESTED",
+      };
+
+      await storeNotification(
+        providerPayload.title,
+        providerPayload.body,
+        provider.id,
+        customerId
+      );
+
+      try {
+        const fcmTokens = await prisma.fCMToken.findMany({
+          where: { userId: provider.id },
+        });
+
+        if (fcmTokens.length > 0) {
+          await NotificationService.sendNotification(
+            fcmTokens,
+            providerPayload.title,
+            providerPayload.body,
+            {
+              type: providerPayload.type,
+              tag: `cancellation_${booking.id}`,
+            }
+          );
+        }
+      } catch (err) {
+        console.error("Provider notification error:", err.message);
+      }
+
+      /* -------- NOTIFY CUSTOMER -------- */
+      const customerPayload = {
+        title: "Cancellation Requested",
+        body: `Your cancellation request for ${booking.service.name} has been sent to the provider.`,
+        type: "CANCELLATION_REQUESTED",
+      };
+
+      await storeNotification(
+        customerPayload.title,
+        customerPayload.body,
+        customerId,
+        customerId
+      );
+      try {
+        const fcmTokens = await prisma.fCMToken.findMany({
+          where: { userId: customerId },
+        });
+
+        if (fcmTokens.length > 0) {
+          await NotificationService.sendNotification(
+            fcmTokens,
+            customerPayload.title,
+            customerPayload.body,
+            {
+              type: customerPayload.type,
+              tag: `cancellation_${booking.id}`,
+            }
+          );
+        }
+      } catch (err) {
+        console.error("Provider notification error:", err.message);
+      }
+
+      return res.status(200).json({
+        success: true,
+        msg: "Cancellation request sent to provider.",
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      msg: "Booking cannot be cancelled in its current state.",
+    });
+  } catch (error) {
+    console.error("Cancel booking error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Something went wrong while cancelling the booking.",
+    });
   }
 };
 

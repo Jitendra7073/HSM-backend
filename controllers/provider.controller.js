@@ -810,14 +810,14 @@ const createSingleSlot = async (req, res) => {
     }
 
     // Check if a slot with the same time already exists for this business
-    const existingSlot = await prisma.Slot.findFirst({  
+    const existingSlot = await prisma.Slot.findFirst({
       where: {
         time,
         businessProfileId: business.id,
       },
     });
 
-    if(existingSlot){
+    if (existingSlot) {
       return res.status(400).json({
         success: false,
         msg: "A slot with this time already exists for your business.",
@@ -826,21 +826,19 @@ const createSingleSlot = async (req, res) => {
 
     // Create the new slot
     const newSlot = await prisma.Slot.create({
-      data:{
+      data: {
         time,
         businessProfileId: business.id,
-      }
-    })
+      },
+    });
 
     return res.status(201).json({
       success: true,
       msg: "Slot created successfully.",
       slot: newSlot,
     });
-  } catch (error) {
-    
-  }
-}
+  } catch (error) {}
+};
 
 const getAllSlots = async (req, res) => {
   const userId = req.user.id;
@@ -1049,7 +1047,9 @@ const updateBooking = async (req, res) => {
   }
 
   if (!bookingId) {
-    return res.status(400).json({ success: false, msg: "Booking ID is required." });
+    return res
+      .status(400)
+      .json({ success: false, msg: "Booking ID is required." });
   }
 
   if (!status) {
@@ -1063,7 +1063,9 @@ const updateBooking = async (req, res) => {
     });
 
     if (!booking) {
-      return res.status(404).json({ success: false, msg: "Booking not found." });
+      return res
+        .status(404)
+        .json({ success: false, msg: "Booking not found." });
     }
 
     const normalizedStatus = status.toUpperCase();
@@ -1082,11 +1084,18 @@ const updateBooking = async (req, res) => {
 
     const notificationPayload = {
       title: `Booking ${normalizedStatus}`,
-      body: `Your ${booking.service?.name || "service"} booking has been ${normalizedStatus}.`,
+      body: `Your ${
+        booking.service?.name || "service"
+      } booking has been ${normalizedStatus}.`,
       type: "BOOKING_STATUS_UPDATED",
     };
 
-    await storeNotification(notificationPayload.title, notificationPayload.body, booking.userId, providerId);
+    await storeNotification(
+      notificationPayload.title,
+      notificationPayload.body,
+      booking.userId,
+      providerId
+    );
     try {
       const fcmTokens = await prisma.fCMToken.findMany({
         where: { userId: booking.userId },
@@ -1096,7 +1105,7 @@ const updateBooking = async (req, res) => {
         await NotificationService.sendNotification(
           fcmTokens,
           notificationPayload.title,
-          notificationPayload.body,
+          notificationPayload.body
         );
       }
     } catch (notifyErr) {
@@ -1116,7 +1125,6 @@ const updateBooking = async (req, res) => {
     });
   }
 };
-
 
 /* ---------------- DASHBOARD STATES ---------------- */
 const getDashboardStats = async (req, res) => {
@@ -1358,6 +1366,79 @@ const getAllSubscriptionPlans = async (req, res) => {
     return res.status(200).json({ success: true, plans });
   } catch (error) {}
 };
+
+/* ---------------- SERVICE FEEDBACK ---------------- */
+const GetAllCancellationBookings = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const business = await prisma.BusinessProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        msg: "Business profile not found for this user.",
+      });
+    }
+
+    const cancelledBookings = await prisma.Booking.findMany({
+      where: {
+        businessProfileId: business.id,
+        bookingStatus: {
+          in: ["CANCEL_REQUESTED", "CANCELLED"],
+        },
+      },
+    });
+
+    if (cancelledBookings.length === 0) {
+      return res.status(200).json({
+        success: true,
+        msg: "No cancelled bookings found.",
+        count: 0,
+        bookings: [],
+      });
+    }
+
+
+    const bookingsList = await Promise.all(
+      cancelledBookings.map(async (booking) => {
+        // fetching the all cancel booking s from the cancel table 
+        const cancelDetails = await prisma.Cancellation.findUnique({
+          where: { bookingId: booking.id },
+        })
+        console.log("cancelDetails of the booking", cancelDetails);
+
+        const user = await prisma.user.findUnique({
+          where: { id: booking.userId },
+          select: { name: true },
+        });
+
+        const service = await prisma.Service.findUnique({
+          where: { id: booking.serviceId },
+          select: { name: true, price: true },
+        });
+
+        return { ...cancelDetails, user, service };
+      })
+    );
+
+    return res.status(200).json({
+      success: true,
+      msg: "Cancelled bookings fetched successfully.",
+      count: bookingsList.length,
+      bookings: bookingsList,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not fetch cancelled bookings.",
+    });
+  }
+};
+
 module.exports = {
   // BUSINESS
   createBusiness,
@@ -1395,4 +1476,7 @@ module.exports = {
 
   // Subscription Plans
   getAllSubscriptionPlans,
+
+  // Get all cancl Bookings
+  GetAllCancellationBookings,
 };

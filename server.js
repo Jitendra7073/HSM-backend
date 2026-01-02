@@ -45,7 +45,7 @@ const ProviderRoute = require("./routes/provider.route");
 const NotificationRoute = require("./routes/notification.route");
 
 /* ---------------- SCHEDULER IMPORTS ---------------- */
-const { startBookingCleanupJob, startTokenCleanupJob } = require("./controllers/scheduler/bookingCleanUp");
+const { startBookingCleanupJob, startBookingCancellationCleanupJob } = require("./controllers/scheduler/bookingCleanUp");
 
 /* ---------------- PUBLIC ROUTE ---------------- */
 app.use("/auth", AuthRoutes);
@@ -62,9 +62,9 @@ server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   
   /* ---------------- START SCHEDULER JOBS ---------------- */
-  startBookingCleanupJob();
-  console.log("Booking cleanup job started - runs every 30 seconds");
+  // startBookingCleanupJob();
+  // console.log("Booking cleanup job started - runs every 30 seconds");
   
-  startTokenCleanupJob();
-  console.log("Token cleanup job started - runs every hour");
+  // startBookingCancellationCleanupJob();
+  // console.log("Auto-approve cancellations job started - runs every 7 days");
 });

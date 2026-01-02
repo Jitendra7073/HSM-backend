@@ -30,6 +30,7 @@ enum AddressType {
 enum BookingStatus {
   PENDING
   PENDING_PAYMENT
+  CANCEL_REQUESTED
   CONFIRMED
   COMPLETED
   CANCELLED
@@ -41,6 +42,7 @@ enum BookingStatus {
 enum PaymentStatus {
   PENDING
   PAID
+  REFUNDED
   FAILED
   CANCELLED
 }
@@ -71,6 +73,7 @@ model User {
   sentNotifications          Notification[]            @relation("NotificationSender")
   providerSubscription       ProviderSubscription?
   refreshTokens              RefreshToken[]
+  cancellation              Cancellation[]
 
   @@index([email])
 }
@@ -244,7 +247,8 @@ model Booking {
   isFeedbackProvided  Boolean      @default(false)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  expiresAt         DateTime?      
+  expiresAt         DateTime? 
+  cancellation      Cancellation?     
 
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   address         Address         @relation(fields: [addressId], references: [id], onDelete: Cascade)
@@ -254,6 +258,43 @@ model Booking {
 
   feedback Feedback[]
 }
+
+
+/**
+ * ---------------- CANCELLATION MODEL ----------------
+ */
+model Cancellation {
+  id        String   @id @default(uuid())
+
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  requestedById String
+  requestedBy   User   @relation(fields: [requestedById], references: [id])
+
+  reason     String
+  reasonType String  
+
+  status BookingStatus @default(CANCEL_REQUESTED)
+
+  refundStatus PaymentStatus @default(PENDING)
+
+  refundAmount Int?
+  refundedAt   DateTime?
+
+  /* ---------------- TIMESTAMPS ---------------- */
+  requestedAt    DateTime @default(now())
+  approvedAt     DateTime?
+  autoApprovedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+  @@index([refundStatus])
+}
+
 
 /**
  * ---------------- PAYMENT MODEL ----------------
