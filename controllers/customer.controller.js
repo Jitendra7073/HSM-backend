@@ -250,18 +250,28 @@ const cancelBooking = async (req, res) => {
     });
   }
 
+  /* ---------- helper: parse slot time (12h → 24h) ---------- */
+  const parseSlotTimeTo24H = (timeStr) => {
+    const [time, modifier] = timeStr.split(" ");
+    let [hours, minutes] = time.split(":").map(Number);
+
+    if (modifier === "PM" && hours !== 12) hours += 12;
+    if (modifier === "AM" && hours === 12) hours = 0;
+
+    return { hours, minutes };
+  };
+
   try {
     const booking = await prisma.Booking.findUnique({
       where: { id: bookingId },
       include: {
         service: true,
-        businessProfile: {
-          include: { user: true },
-        },
-        cancellation: true,
+        slot: true,
+        businessProfile: { include: { user: true } },
       },
     });
 
+    /* ---------------- VALIDATIONS ---------------- */
     if (!booking || booking.userId !== customerId) {
       return res.status(404).json({
         success: false,
@@ -269,7 +279,6 @@ const cancelBooking = async (req, res) => {
       });
     }
 
-    /* ---------------- HARD STOPS ---------------- */
     if (booking.bookingStatus === "COMPLETED") {
       return res.status(400).json({
         success: false,
@@ -277,178 +286,280 @@ const cancelBooking = async (req, res) => {
       });
     }
 
-    if (
-      booking.bookingStatus === "CANCELLED" ||
-      booking.bookingStatus === "CANCEL_REQUESTED"
-    ) {
+    if (booking.bookingStatus === "CANCELLED") {
       return res.status(409).json({
         success: false,
-        msg: "Cancellation already processed.",
+        msg: "Booking already cancelled.",
       });
     }
 
-    /* 
-       → Immediate cancellation
-     */
-    if (
-      booking.bookingStatus === "PENDING" ||
-      booking.bookingStatus === "PENDING_PAYMENT"
-    ) {
-      await prisma.$transaction(async (tx) => {
-        await tx.Cancellation.create({
-          data: {
-            bookingId: booking.id,
-            requestedById: customerId,
-            reason,
-            reasonType,
-            status: "CANCELLED",
-            refundStatus:
-              booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
-            refundedAt:
-              booking.paymentStatus === "PAID" ? new Date() : null,
-          },
-        });
-
-        await tx.Booking.update({
-          where: { id: booking.id },
-          data: {
-            bookingStatus: "CANCELLED",
-            paymentStatus:
-              booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
-          },
-        });
-      });
-
-      /* -------- NOTIFY CUSTOMER -------- */
-      const payload = {
-        title: "Booking Cancelled",
-        body: `Your booking for ${booking.service.name} has been cancelled successfully.`,
-        type: "BOOKING_CANCELLED",
-      };
-
-      await storeNotification(
-        payload.title,
-        payload.body,
-        customerId,
-        customerId
-      );
-
-      return res.status(200).json({
-        success: true,
-        msg: "Booking cancelled successfully.",
+    /* ---------------- SERVICE START TIME ---------------- */
+    if (!booking.slot || !booking.slot.time) {
+      return res.status(400).json({
+        success: false,
+        msg: "Service time not available.",
       });
     }
 
-    /* 
-       → Cancellation request
-     */
-    if (booking.bookingStatus === "CONFIRMED") {
+    const bookingDate = new Date(booking.date);
+    const { hours, minutes } = parseSlotTimeTo24H(booking.slot.time);
 
-      if(booking.createdAt.getTime() + 12*60*60*1000 < Date.now()){
-        return res.status(400).json({
-          success: false,
-          msg: "Cancellations can only be requested within 12 hours of booking confirmation.",
-        });
-      }
+    const serviceStart = new Date(bookingDate);
+    serviceStart.setHours(hours, minutes, 0, 0);
 
-      await prisma.$transaction(async (tx) => {
-        await tx.Cancellation.create({
-          data: {
-            bookingId: booking.id,
-            requestedById: customerId,
-            reason,
-            reasonType,
-            status: "CANCEL_REQUESTED",
-            refundStatus: "PENDING",
-          },
-        });
+    if (isNaN(serviceStart.getTime())) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid service start time.",
+      });
+    }
 
-        await tx.Booking.update({
-          where: { id: booking.id },
-          data: {
-            bookingStatus: "CANCEL_REQUESTED",
-          },
-        });
+    const now = new Date();
+    const diffMs = serviceStart - now;
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    if (diffHours <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Service has already started or passed.",
+      });
+    }
+
+    /* ---------------- CANCELLATION FEE LOGIC ---------------- */
+    let feePercentage = 0;
+
+    if (diffHours < 4) feePercentage = 50;
+    else if (diffHours < 12) feePercentage = 25;
+    else if (diffHours < 24) feePercentage = 10;
+
+    let cancellationFee = 0;
+    let refundAmount = 0;
+
+    if (booking.paymentStatus === "PAID") {
+      cancellationFee = Math.round(
+        (booking.totalAmount * feePercentage) / 100
+      );
+      refundAmount = booking.totalAmount - cancellationFee;
+    }
+
+    /* ---------------- DB TRANSACTION ---------------- */
+    await prisma.$transaction(async (tx) => {
+      await tx.Cancellation.create({
+        data: {
+          bookingId: booking.id,
+          requestedById: customerId,
+          reason,
+          reasonType,
+          status: "CANCELLED",
+          refundStatus:
+            booking.paymentStatus === "PAID" ? "PENDING" : "CANCELLED",
+          refundAmount,
+          cancellationFee,
+          hoursBeforeService: Math.floor(diffHours),
+        },
       });
 
-      /* -------- NOTIFY PROVIDER -------- */
-      const provider = booking.businessProfile.user;
+      await tx.Booking.update({
+        where: { id: booking.id },
+        data: {
+          bookingStatus: "CANCELLED",
+          paymentStatus: booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
+        },
+      });
+    });
 
-      const providerPayload = {
-        title: "Cancellation Request Received",
-        body: `A customer has requested to cancel the booking for ${booking.service.name}. Please review within 7 days.`,
-        type: "CANCELLATION_REQUESTED",
-      };
-
-      await storeNotification(
-        providerPayload.title,
-        providerPayload.body,
-        provider.id,
-        customerId
-      );
-
+    /* ---------------- PROCESS STRIPE REFUND IMMEDIATELY ---------------- */
+    let refundResponse = null;
+    if (booking.paymentStatus === "PAID" && refundAmount > 0) {
       try {
-        const fcmTokens = await prisma.fCMToken.findMany({
-          where: { userId: provider.id },
+        // Find the payment record to get payment intent ID
+        const payment = await prisma.CustomerPayment.findFirst({
+          where: {
+            bookingIds: {
+              contains: booking.id,
+            },
+            status: "PAID",
+          },
         });
 
-        if (fcmTokens.length > 0) {
-          await NotificationService.sendNotification(
-            fcmTokens,
-            providerPayload.title,
-            providerPayload.body,
-            {
-              type: providerPayload.type,
-              tag: `cancellation_${booking.id}`,
-            }
-          );
+        if (payment && payment.paymentIntentId) {
+          const Stripe = require("stripe");
+          const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+          console.log(`🔄 Processing refund for booking ${booking.id}...`);
+          console.log(`   Payment Intent: ${payment.paymentIntentId}`);
+          console.log(`   Refund Amount: ₹${refundAmount} (Fee: ₹${cancellationFee})`);
+
+          // Create refund in Stripe
+          const refund = await stripe.refunds.create({
+            payment_intent: payment.paymentIntentId,
+            amount: refundAmount * 100, // Convert to cents
+            reason: "requested_by_customer",
+            metadata: {
+              bookingId: booking.id,
+              userId: customerId,
+              cancellationFee: cancellationFee,
+              reasonType: reasonType,
+              hoursBeforeService: Math.floor(diffHours),
+            },
+          });
+
+          refundResponse = {
+            refundId: refund.id,
+            status: refund.status,
+            amount: refund.amount / 100,
+          };
+
+          // Update cancellation record with refund details
+          // Stripe refund statuses: pending, succeeded, failed, canceled
+          let refundStatus = "PENDING";
+          if (refund.status === "succeeded") {
+            refundStatus = "PAID";
+          } else if (refund.status === "pending") {
+            refundStatus = "PROCESSING"; // More accurate status for customer
+          } else if (refund.status === "failed" || refund.status === "canceled") {
+            refundStatus = "FAILED";
+          }
+
+          await prisma.Cancellation.update({
+            where: { bookingId: booking.id },
+            data: {
+              refundStatus: refundStatus,
+              refundedAt: refund.status === "succeeded" ? new Date() : null,
+            },
+          });
+
+          console.log(`✅ Refund processed: ${refund.id} - ${refund.status}`);
+          console.log(`   Status: ${refund.status} -> DB Status: ${refundStatus}`);
+        } else {
+          console.warn(`⚠️  No payment intent found for booking ${booking.id}`);
+          // Still create cancellation record even if no payment found
+          await prisma.Cancellation.update({
+            where: { bookingId: booking.id },
+            data: {
+              refundStatus: "FAILED",
+            },
+          });
         }
-      } catch (err) {
-        console.error("Provider notification error:", err.message);
-      }
-
-      /* -------- NOTIFY CUSTOMER -------- */
-      const customerPayload = {
-        title: "Cancellation Requested",
-        body: `Your cancellation request for ${booking.service.name} has been sent to the provider.`,
-        type: "CANCELLATION_REQUESTED",
-      };
-
-      await storeNotification(
-        customerPayload.title,
-        customerPayload.body,
-        customerId,
-        customerId
-      );
-      try {
-        const fcmTokens = await prisma.fCMToken.findMany({
-          where: { userId: customerId },
-        });
-
-        if (fcmTokens.length > 0) {
-          await NotificationService.sendNotification(
-            fcmTokens,
-            customerPayload.title,
-            customerPayload.body,
-            {
-              type: customerPayload.type,
-              tag: `cancellation_${booking.id}`,
-            }
-          );
+      } catch (refundError) {
+        console.error("❌ Refund processing error:", refundError.message);
+        // Update cancellation to show refund pending (can be processed manually)
+        try {
+          await prisma.Cancellation.update({
+            where: { bookingId: booking.id },
+            data: {
+              refundStatus: "PENDING",
+            },
+          });
+        } catch (updateError) {
+          console.error("Failed to update cancellation status:", updateError);
         }
-      } catch (err) {
-        console.error("Provider notification error:", err.message);
+        // Don't fail the cancellation if refund fails - it can be processed manually
       }
-
-      return res.status(200).json({
-        success: true,
-        msg: "Cancellation request sent to provider.",
-      });
     }
 
-    return res.status(400).json({
-      success: false,
-      msg: "Booking cannot be cancelled in its current state.",
+    /* =====================================================
+       🔔 NOTIFICATIONS (STORE + PUSH)
+    ===================================================== */
+
+    /* ---------- CUSTOMER ---------- */
+    const getRefundStatusMessage = () => {
+      if (booking.paymentStatus !== "PAID" || refundAmount === 0) {
+        return "";
+      }
+
+      const feeMsg = cancellationFee > 0 ? ` (Cancellation fee: ₹${cancellationFee})` : "";
+      return ` ₹${refundAmount} refund is being processed${feeMsg}. You'll receive it within 5-7 business days.`;
+    };
+
+    const customerPayload = {
+      title: "Booking Cancelled Successfully",
+      body: `Your booking for ${booking.service.name} has been cancelled.${getRefundStatusMessage()}`,
+      type: "BOOKING_CANCELLED",
+    };
+
+    await storeNotification(
+      customerPayload.title,
+      customerPayload.body,
+      customerId,
+      customerId
+    );
+
+    try {
+      const customerTokens = await prisma.FCMToken.findMany({
+        where: { userId: customerId, isActive: true },
+      });
+
+      if (customerTokens.length > 0) {
+        await NotificationService.sendNotification(
+          customerTokens,
+          customerPayload.title,
+          customerPayload.body,
+          {
+            type: customerPayload.type,
+            tag: `booking_cancel_${booking.id}`,
+          }
+        );
+      }
+    } catch (err) {
+      console.error("Customer push error:", err.message);
+    }
+
+    /* ---------- PROVIDER ---------- */
+    const providerId = booking.businessProfile.user.id;
+
+    const providerPayload = {
+      title: "Booking Cancelled by Customer",
+      body:
+        booking.paymentStatus === "PAID"
+          ? `Customer cancelled booking for ${booking.service.name}. Refund of ₹${refundAmount} is being processed${cancellationFee > 0
+            ? ` (Cancellation fee: ₹${cancellationFee} deducted)`
+            : ""
+          }.`
+          : `Customer cancelled unpaid booking for ${booking.service.name}.`,
+      type: "BOOKING_CANCELLED",
+    };
+
+    await storeNotification(
+      providerPayload.title,
+      providerPayload.body,
+      providerId,
+      customerId
+    );
+
+    try {
+      const providerTokens = await prisma.FCMToken.findMany({
+        where: { userId: providerId, isActive: true },
+      });
+
+      if (providerTokens.length > 0) {
+        await NotificationService.sendNotification(
+          providerTokens,
+          providerPayload.title,
+          providerPayload.body,
+          {
+            type: providerPayload.type,
+            tag: `booking_cancel_${booking.id}`,
+          }
+        );
+      }
+    } catch (err) {
+      console.error("Provider push error:", err.message);
+    }
+
+    /* ---------------- RESPONSE ---------------- */
+    return res.status(200).json({
+      success: true,
+      msg: "Booking cancelled successfully.",
+      data: {
+        feePercentage,
+        cancellationFee,
+        refundAmount,
+        hoursBeforeService: Math.floor(diffHours),
+        refund: refundResponse,
+        bookingId: booking.id,
+        originalAmount: booking.totalAmount,
+      },
     });
   } catch (error) {
     console.error("Cancel booking error:", error);
@@ -813,6 +924,59 @@ const giveFeedback = async (req, res) => {
   }
 };
 
+/* ---------------- GET CANCELLATION DETAILS FOR REFUND TRACKING ---------------- */
+const getCancellationDetails = async (req, res) => {
+  const customerId = req.user.id;
+  const { bookingId } = req.params;
+
+  try {
+    const booking = await prisma.Booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        service: {
+          select: {
+            name: true,
+            price: true,
+          },
+        },
+        cancellation: true,
+      },
+    });
+
+    if (!booking || booking.userId !== customerId) {
+      return res.status(404).json({
+        success: false,
+        msg: "Booking not found or not owned by you.",
+      });
+    }
+
+    if (!booking.cancellation) {
+      return res.status(404).json({
+        success: false,
+        msg: "No cancellation found for this booking.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      msg: "Cancellation details fetched successfully.",
+      cancellation: booking.cancellation,
+      booking: {
+        id: booking.id,
+        serviceName: booking.service.name,
+        originalAmount: booking.totalAmount,
+        bookingStatus: booking.bookingStatus,
+      },
+    });
+  } catch (error) {
+    console.error("Get cancellation error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to fetch cancellation details.",
+    });
+  }
+};
+
 module.exports = {
   getAllProviders,
   getProviderById,
@@ -824,4 +988,5 @@ module.exports = {
   removeItemFromCart,
   getAllFeedback,
   giveFeedback,
+  getCancellationDetails,
 };

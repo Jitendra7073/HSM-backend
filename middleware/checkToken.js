@@ -59,7 +59,10 @@ const refreshAccessToken = async (refreshToken, res) => {
 
     return { accessToken: newAccessToken, user };
   } catch (error) {
-    console.error("Refresh token error:", error);
+    // Silent fail - only log if it's not a common JWT error
+    if (error.name !== "JsonWebTokenError" && error.name !== "TokenExpiredError") {
+      console.error("Refresh token error:", error.message);
+    }
     return null;
   }
 };
@@ -101,16 +104,25 @@ const checkAuthToken = () => {
       req.user = User;
       next();
     } catch (error) {
-      // Access token expired or invalid
-      console.error("Token verification error:", error.message);
-
-      // If it's expired and we have a refresh token, try to refresh
-      if (error.name === "TokenExpiredError" && refreshToken) {
+      // Access token expired or invalid - try to refresh silently
+      
+      if (refreshToken) {
+        // Try to refresh using refresh token
         const result = await refreshAccessToken(refreshToken, res);
 
         if (result) {
           req.user = result.user;
           return next();
+        }
+        
+        // Refresh failed - only log if it's an unexpected error
+        if (error.name !== "JsonWebTokenError" && error.name !== "TokenExpiredError") {
+          console.error("Token verification and refresh failed:", error.name);
+        }
+      } else {
+        // No refresh token - only log unexpected errors
+        if (error.name !== "JsonWebTokenError" && error.name !== "TokenExpiredError") {
+          console.error("Token verification failed (no refresh token):", error.name);
         }
       }
 
@@ -118,7 +130,7 @@ const checkAuthToken = () => {
       return res.status(401).json({
         success: false,
         msg: "Invalid or expired access token!",
-        refreshRequired: true, // Flag to tell frontend to redirect to login
+        refreshRequired: true,
       });
     }
   };

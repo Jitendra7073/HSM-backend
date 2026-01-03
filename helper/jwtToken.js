@@ -40,8 +40,14 @@ const assignToken = (user) => {
 
 /* ---------------- VERIFY JWT TOKEN ---------------- */
 const verifyToken = (token) => {
-  const user = jwt.verify(token, process.env.JWT_SECRET_KEY);
-  return user;
+  try {
+    const user = jwt.verify(token, process.env.JWT_SECRET_KEY);
+    return user;
+  } catch (error) {
+    // Re-throw the error to be handled by caller
+    // Don't log here - let the caller decide how to handle
+    throw error;
+  }
 };
 
 module.exports = {

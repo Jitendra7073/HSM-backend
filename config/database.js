@@ -6,6 +6,16 @@ const pool = new Pool({
   ssl: {
     rejectUnauthorized: false, 
   },
+  // Connection pool settings to handle Neon's connection limits
+  max: 20, // Maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
+});
+
+// Handle pool errors globally to prevent crashes
+pool.on('error', (err, client) => {
+  console.error('Unexpected database pool error:', err.message);
+  // Don't exit process - let the pool recover
 });
 
 /* ---------------- CONNECTING WITH DATABASE ---------------- */
@@ -16,7 +26,7 @@ const ConnectDB = async () => {
     client.release();
   } catch (error) {
     console.error("Failed to connect with Neon DB:", error.message);
-    process.exit(1);
+    // Don't exit - let the app continue and retry connections
   }
 };
 

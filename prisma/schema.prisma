@@ -51,29 +51,29 @@ enum PaymentStatus {
  * ---------------- USER MODEL ----------------
  */
 model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  mobile    String
-  password  String
-  role      Role     @default(customer)
-  tokenVersion Int @default(0)
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  mobile       String
+  password     String
+  role         Role     @default(customer)
+  tokenVersion Int      @default(0)
+  createdAt    DateTime @default(now())
 
   // Relations
-  addresses                  Address[]
-  businessProfile            BusinessProfile?
-  bookings                   Booking[]
-  feedbacks                  Feedback[]
-  Businesscategory           Businesscategory[]
-  carts                      Cart[]
-  CustomerPayment            CustomerPayment[]
-  FCMToken                   FCMToken[]
-  receivedNotifications      Notification[]            @relation("NotificationReceiver")
-  sentNotifications          Notification[]            @relation("NotificationSender")
-  providerSubscription       ProviderSubscription?
-  refreshTokens              RefreshToken[]
-  cancellation              Cancellation[]
+  addresses             Address[]
+  businessProfile       BusinessProfile?
+  bookings              Booking[]
+  feedbacks             Feedback[]
+  Businesscategory      Businesscategory[]
+  carts                 Cart[]
+  CustomerPayment       CustomerPayment[]
+  FCMToken              FCMToken[]
+  receivedNotifications Notification[]        @relation("NotificationReceiver")
+  sentNotifications     Notification[]        @relation("NotificationSender")
+  providerSubscription  ProviderSubscription?
+  refreshTokens         RefreshToken[]
+  cancellation          Cancellation[]
 
   @@index([email])
 }
@@ -233,22 +233,22 @@ model Slot {
  * ---------------- BOOKING MODEL ----------------
  */
 model Booking {
-  id                String        @id @default(uuid())
-  userId            String
-  addressId         String
-  serviceId         String
-  businessProfileId String
-  slotId            String?
-  totalAmount       Int
-  paymentStatus     PaymentStatus @default(PENDING)
-  bookingStatus     BookingStatus @default(PENDING)
-  date              String
-  paymentLink       String?       // Stripe checkout URL for payment recovery
-  isFeedbackProvided  Boolean      @default(false)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  expiresAt         DateTime? 
-  cancellation      Cancellation?     
+  id                 String        @id @default(uuid())
+  userId             String
+  addressId          String
+  serviceId          String
+  businessProfileId  String
+  slotId             String?
+  totalAmount        Int
+  paymentStatus      PaymentStatus @default(PENDING)
+  bookingStatus      BookingStatus @default(PENDING)
+  date               String
+  paymentLink        String? // Stripe checkout URL for payment recovery
+  isFeedbackProvided Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  expiresAt          DateTime?
+  cancellation       Cancellation?
 
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   address         Address         @relation(fields: [addressId], references: [id], onDelete: Cascade)
@@ -259,31 +259,34 @@ model Booking {
   feedback Feedback[]
 }
 
-
 /**
  * ---------------- CANCELLATION MODEL ----------------
  */
 model Cancellation {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  bookingId String   @unique
-  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId String  @unique
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   requestedById String
   requestedBy   User   @relation(fields: [requestedById], references: [id])
 
   reason     String
-  reasonType String  
+  reasonType String
 
   status BookingStatus @default(CANCEL_REQUESTED)
 
   refundStatus PaymentStatus @default(PENDING)
 
-  refundAmount Int?
-  refundedAt   DateTime?
+  refundAmount       Int?
+  cancellationFee    Int?
+  hoursBeforeService Int?
+  refundedAt         DateTime?
 
-  /* ---------------- TIMESTAMPS ---------------- */
-  requestedAt    DateTime @default(now())
+  /**
+   * ---------------- TIMESTAMPS ----------------
+   */
+  requestedAt    DateTime  @default(now())
   approvedAt     DateTime?
   autoApprovedAt DateTime?
 
@@ -294,7 +297,6 @@ model Cancellation {
   @@index([status])
   @@index([refundStatus])
 }
-
 
 /**
  * ---------------- PAYMENT MODEL ----------------
@@ -381,7 +383,7 @@ model Feedback {
   createdAt   DateTime @default(now())
 
   bookingId String  @unique
-  booking   Booking @relation(fields: [bookingId],references: [id],onDelete: Cascade)
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)

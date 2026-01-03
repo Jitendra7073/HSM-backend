@@ -4,7 +4,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 require("dotenv").config();
 
-const {ConnectDB} = require("./config/database");
+const { ConnectDB } = require("./config/database");
 
 const app = express();
 const server = http.createServer(app);
@@ -58,13 +58,40 @@ app.use("/api/v1/notification", NotificationRoute);
 app.use("/api/v1/customer", RoleBasedAccess("customer"), CustomerRoute)
 app.use("/api/v1/provider", RoleBasedAccess("provider"), ProviderRoute);
 
+/* ---------------- GLOBAL ERROR HANDLERS ---------------- */
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit process - log and continue
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error.message);
+  // Don't exit process for database connection errors
+  if (error.message && error.message.includes('Connection terminated')) {
+    console.error('Database connection lost - will reconnect on next request');
+  } else {
+    console.error('Stack:', error.stack);
+  }
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\nShutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  
+
   /* ---------------- START SCHEDULER JOBS ---------------- */
   // startBookingCleanupJob();
   // console.log("Booking cleanup job started - runs every 30 seconds");
-  
+
   // startBookingCancellationCleanupJob();
   // console.log("Auto-approve cancellations job started - runs every 7 days");
 });

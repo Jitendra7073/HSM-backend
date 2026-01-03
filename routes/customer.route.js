@@ -10,6 +10,7 @@ route.get("/providers/:providerId", CustomerController.getProviderById);
 /* ---------------- SLOT ROUTE ---------------- */
 route.get("/bookings", CustomerController.getCustomerBookings);
 route.patch("/bookings/cancel", CustomerController.cancelBooking);
+route.get("/bookings/:bookingId/cancellation", CustomerController.getCancellationDetails);
 
 /* ---------------- CART ROUTE ---------------- */
 route
