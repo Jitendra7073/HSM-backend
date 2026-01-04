@@ -101,7 +101,7 @@ const login = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: 60 * 1000, // 15 minutes
       path: "/",
     });
 
