@@ -101,7 +101,7 @@ const login = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 1000, // 15 minutes
+      maxAge: 1 * 60 * 1000, // 1 minute (matches JWT expiry)
       path: "/",
     });
 
@@ -264,8 +264,8 @@ const refreshToken = async (req, res) => {
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
+      sameSite: "lax",
+      maxAge: 1 * 60 * 1000, // 1 minute (matches JWT expiry)
       path: "/",
     });
 
