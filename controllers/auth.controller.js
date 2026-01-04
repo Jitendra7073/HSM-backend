@@ -264,7 +264,7 @@ const refreshToken = async (req, res) => {
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax", // align with login/middleware so refresh works cross-site
       maxAge: 15 * 60 * 1000,
       path: "/",
     });
@@ -272,7 +272,7 @@ const refreshToken = async (req, res) => {
     res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax", // align with login/middleware so refresh works cross-site
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
