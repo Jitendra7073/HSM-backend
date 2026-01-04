@@ -9,38 +9,52 @@ const {
 const NotificationService = require("../service/notification-service");
 const { storeNotification } = require("./notification.controller");
 
-/* ---------------- GET ALL PROVIDERS ---------------- */
+/* ---------------- GET ALL PROVIDERS (WITH PAGINATION) ---------------- */
 const getAllProviders = async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20)); // Default 20, max 100
+  const skip = (page - 1) * limit;
+
   try {
-    const providers = await prisma.user.findMany({
+    // Get total count of providers
+    const totalCount = await prisma.user.count({
       where: {
         role: "provider",
-
-        // subscribed providers
         providerSubscription: {
           status: "active",
           currentPeriodEnd: {
-            gt: new Date(), // not expired
+            gt: new Date(),
           },
         },
-
-        // active businesses
         businessProfile: {
           isActive: true,
         },
       },
+    });
 
+    // Fetch paginated providers with optimized select
+    const providers = await prisma.user.findMany({
+      where: {
+        role: "provider",
+        providerSubscription: {
+          status: "active",
+          currentPeriodEnd: {
+            gt: new Date(),
+          },
+        },
+        businessProfile: {
+          isActive: true,
+        },
+      },
       select: {
         id: true,
         name: true,
         mobile: true,
-
         businessProfile: {
           select: {
             id: true,
             businessName: true,
             isActive: true,
-
             services: {
               where: {
                 isActive: true,
@@ -51,13 +65,31 @@ const getAllProviders = async (req, res) => {
                 category: true,
                 durationInMinutes: true,
                 price: true,
+                averageRating: true,
+                reviewCount: true,
               },
+              take: 5, // Limit to first 5 services per provider
             },
           },
         },
-
-        addresses: true,
+        addresses: {
+          select: {
+            id: true,
+            street: true,
+            city: true,
+            state: true,
+            type: true,
+          },
+          take: 1, // Limit to primary address
+        },
       },
+      orderBy: {
+        businessProfile: {
+          businessName: "asc",
+        },
+      },
+      take: limit,
+      skip: skip,
     });
 
     if (!providers.length) {
@@ -65,17 +97,32 @@ const getAllProviders = async (req, res) => {
         success: true,
         msg: "No subscribed providers available.",
         count: 0,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: 0,
+        },
         providers: [],
       });
     }
+
+    const totalPages = Math.ceil(totalCount / limit);
 
     return res.status(200).json({
       success: true,
       msg: "Subscribed providers fetched successfully.",
       count: providers.length,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+      },
       providers,
     });
   } catch (err) {
+    console.error("Error fetching providers:", err);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch providers.",
@@ -83,7 +130,7 @@ const getAllProviders = async (req, res) => {
   }
 };
 
-/* ---------------- GET PROVIDER BY ID ---------------- */
+/* ---------------- GET PROVIDER BY ID (OPTIMIZED) ---------------- */
 const getProviderById = async (req, res) => {
   const { providerId } = req.params;
 
@@ -105,6 +152,7 @@ const getProviderById = async (req, res) => {
             isActive: true,
             socialLinks: true,
             services: {
+              where: { isActive: true },
               select: {
                 id: true,
                 name: true,
@@ -118,18 +166,30 @@ const getProviderById = async (req, res) => {
                 reviewCount: true,
                 totalBookingAllow: true,
                 isActive: true,
-                feedback: true,
               },
+              take: 50, // Limit to first 50 services
             },
             slots: {
               select: {
                 id: true,
                 time: true,
               },
+              take: 50, // Limit to first 50 slots
             },
           },
         },
-        addresses: true,
+        addresses: {
+          select: {
+            id: true,
+            street: true,
+            city: true,
+            state: true,
+            postalCode: true,
+            country: true,
+            type: true,
+          },
+          take: 5, // Limit to first 5 addresses
+        },
       },
     });
 
@@ -145,6 +205,7 @@ const getProviderById = async (req, res) => {
       provider,
     });
   } catch (err) {
+    console.error("Error fetching provider:", err);
     return res
       .status(500)
       .json({ success: false, msg: "Server Error: Could not fetch provider." });
@@ -152,26 +213,48 @@ const getProviderById = async (req, res) => {
 };
 
 /* ---------------- GET CUSTOMER BOOKINGS ---------------- */
+/* ---------------- GET CUSTOMER BOOKINGS (WITH PAGINATION) ---------------- */
 const getCustomerBookings = async (req, res) => {
   const customerId = req.user.id;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20)); // Default 20, max 100
+  const skip = (page - 1) * limit;
 
   try {
     const currentTime = new Date();
 
+    // Get total count for pagination
+    const totalCount = await prisma.booking.count({
+      where: { userId: customerId },
+    });
+
+    // Fetch paginated bookings with optimized select
     const bookings = await prisma.booking.findMany({
       where: { userId: customerId },
-
-      include: {
+      select: {
+        id: true,
+        totalAmount: true,
+        paymentStatus: true,
+        bookingStatus: true,
+        date: true,
+        paymentLink: true,
+        expiresAt: true,
+        createdAt: true,
+        updatedAt: true,
+        isFeedbackProvided: true,
         service: {
           select: {
+            id: true,
             name: true,
           },
         },
         businessProfile: {
           select: {
+            id: true,
             businessName: true,
             user: {
               select: {
+                id: true,
                 email: true,
                 mobile: true,
               },
@@ -180,13 +263,24 @@ const getCustomerBookings = async (req, res) => {
         },
         slot: {
           select: {
+            id: true,
             time: true,
           },
         },
-        address: true,
+        address: {
+          select: {
+            id: true,
+            street: true,
+            city: true,
+            state: true,
+            postalCode: true,
+            type: true,
+          },
+        },
       },
-
       orderBy: { createdAt: "desc" },
+      take: limit,
+      skip: skip,
     });
 
     const formatted = bookings.map((b) => {
@@ -213,7 +307,17 @@ const getCustomerBookings = async (req, res) => {
       }
 
       return {
-        ...b,
+        id: b.id,
+        totalAmount: b.totalAmount,
+        paymentStatus: b.paymentStatus,
+        bookingStatus: b.bookingStatus,
+        date: b.date,
+        createdAt: b.createdAt,
+        updatedAt: b.updatedAt,
+        isFeedbackProvided: b.isFeedbackProvided,
+        service: b.service,
+        slot: b.slot,
+        address: b.address,
         business: {
           id: b.businessProfile?.id,
           name: b.businessProfile?.businessName,
@@ -221,17 +325,25 @@ const getCustomerBookings = async (req, res) => {
           phone: b.businessProfile?.user?.mobile,
         },
         paymentLinkInfo,
-        businessProfile: undefined,
       };
     });
+
+    const totalPages = Math.ceil(totalCount / limit);
 
     return res.status(200).json({
       success: true,
       msg: "Bookings fetched successfully.",
       count: formatted.length,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+      },
       bookings: formatted,
     });
   } catch (err) {
+    console.error("Error fetching customer bookings:", err);
     return res
       .status(500)
       .json({ success: false, msg: "Could not fetch bookings." });

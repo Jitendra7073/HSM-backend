@@ -935,11 +935,13 @@ const deleteSlot = async (req, res) => {
   }
 };
 
-/* ---------------- BOOKINGS ---------------- */
+/* ---------------- BOOKINGS (WITH PAGINATION) ---------------- */
 const bookingList = async (req, res) => {
-  // try {
   const userId = req.user.id;
-  const { bookingId } = await req.query;
+  const { bookingId } = req.query;
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20)); // Default 20, max 100
+  const skip = (page - 1) * limit;
 
   const businessProfile = await prisma.BusinessProfile.findUnique({
     where: { userId },
@@ -958,17 +960,37 @@ const bookingList = async (req, res) => {
         id: bookingId,
       },
       select: {
+        id: true,
         user: {
           select: {
+            id: true,
             name: true,
             email: true,
             mobile: true,
           },
         },
-        address: true,
-        service: true,
+        address: {
+          select: {
+            id: true,
+            street: true,
+            city: true,
+            state: true,
+            postalCode: true,
+            type: true,
+          },
+        },
+        service: {
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            price: true,
+            durationInMinutes: true,
+          },
+        },
         slot: {
           select: {
+            id: true,
             time: true,
           },
         },
@@ -994,12 +1016,20 @@ const bookingList = async (req, res) => {
     });
   }
 
+  // Get total count of bookings
+  const totalCount = await prisma.Booking.count({
+    where: {
+      businessProfileId: businessProfile.id,
+    },
+  });
+
+  // Fetch paginated bookings with optimized select
   const bookings = await prisma.Booking.findMany({
     where: {
       businessProfileId: businessProfile.id,
     },
-    orderBy: { createdAt: "desc" },
-    include: {
+    select: {
+      id: true,
       user: {
         select: {
           id: true,
@@ -1012,7 +1042,15 @@ const bookingList = async (req, res) => {
           name: true,
         },
       },
+      bookingStatus: true,
+      paymentStatus: true,
+      date: true,
+      createdAt: true,
+      updatedAt: true,
     },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    skip: skip,
   });
 
   if (bookings.length === 0) {
@@ -1020,22 +1058,30 @@ const bookingList = async (req, res) => {
       success: true,
       msg: "No bookings found for this business.",
       count: 0,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages: 0,
+      },
       bookings: [],
     });
   }
+
+  const totalPages = Math.ceil(totalCount / limit);
 
   return res.status(200).json({
     success: true,
     msg: "Bookings fetched successfully.",
     count: bookings.length,
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages,
+    },
     bookings,
   });
-  // } catch (error) {
-  // return res.status(500).json({
-  //   success: false,
-  //   msg: "Server error while fetching bookings.",
-  // });
-  // }
 };
 
 const updateBooking = async (req, res) => {

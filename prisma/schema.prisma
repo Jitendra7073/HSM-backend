@@ -76,6 +76,7 @@ model User {
   cancellation          Cancellation[]
 
   @@index([email])
+  @@index([role])
 }
 
 /**
@@ -172,6 +173,8 @@ model Address {
   user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   Booking         Booking[]
   CustomerPayment CustomerPayment[]
+
+  @@index([userId])
 }
 
 /**
@@ -257,6 +260,12 @@ model Booking {
   slot            Slot?           @relation(fields: [slotId], references: [id])
 
   feedback Feedback[]
+
+  @@index([userId])
+  @@index([businessProfileId])
+  @@index([bookingStatus])
+  @@index([paymentStatus])
+  @@index([createdAt])
 }
 
 /**

@@ -7,57 +7,43 @@ const storeFcmTokenService = async ({ userId, token }) => {
   }
 
   const normalizedToken = token.trim();
+  // Avoid transactions here; a simple upsert removes contention and P2028 timeouts.
+  const existingToken = await prisma.fCMToken.findUnique({
+    where: { token: normalizedToken },
+  });
 
-  return await prisma.$transaction(async (tx) => {
-    const existingToken = await tx.fCMToken.findUnique({
-      where: { token: normalizedToken },
-    });
+  if (existingToken) {
+    const isSameUser = existingToken.userId === userId;
+    const isActive = existingToken.isActive;
 
-    //  Token exists for same user
-    if (existingToken && existingToken.userId === userId) {
-      if (!existingToken.isActive) {
-        await tx.fCMToken.update({
-          where: { token: normalizedToken },
-          data: { isActive: true },
-        });
-      }
-
-      return {
-        created: false,
-        message: "Device already registered",
-      };
-    }
-
-    //  Token exists but linked to another user
-    if (existingToken && existingToken.userId !== userId) {
-      await tx.fCMToken.update({
+    if (!isSameUser || !isActive) {
+      await prisma.fCMToken.update({
         where: { token: normalizedToken },
         data: {
           userId,
           isActive: true,
         },
       });
-
-      return {
-        created: false,
-        message: "Device re-linked to user",
-      };
     }
 
-    //  New token
-    await tx.fCMToken.create({
-      data: {
-        userId,
-        token: normalizedToken,
-        isActive: true,
-      },
-    });
-
     return {
-      created: true,
-      message: "Device registered successfully",
+      created: false,
+      message: isSameUser ? "Device already registered" : "Device re-linked to user",
     };
+  }
+
+  await prisma.fCMToken.create({
+    data: {
+      userId,
+      token: normalizedToken,
+      isActive: true,
+    },
   });
+
+  return {
+    created: true,
+    message: "Device registered successfully",
+  };
 };
 
 /* ---------------- STORE FCM TOKEN API ---------------- */
