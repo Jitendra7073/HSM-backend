@@ -507,10 +507,6 @@ const cancelBooking = async (req, res) => {
           const Stripe = require("stripe");
           const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-          console.log(`🔄 Processing refund for booking ${booking.id}...`);
-          console.log(`   Payment Intent: ${payment.paymentIntentId}`);
-          console.log(`   Refund Amount: ₹${refundAmount} (Fee: ₹${cancellationFee})`);
-
           // Create refund in Stripe
           const refund = await stripe.refunds.create({
             payment_intent: payment.paymentIntentId,
@@ -550,8 +546,6 @@ const cancelBooking = async (req, res) => {
             },
           });
 
-          console.log(`✅ Refund processed: ${refund.id} - ${refund.status}`);
-          console.log(`   Status: ${refund.status} -> DB Status: ${refundStatus}`);
         } else {
           console.warn(`⚠️  No payment intent found for booking ${booking.id}`);
           // Still create cancellation record even if no payment found

@@ -259,22 +259,24 @@ const refreshToken = async (req, res) => {
       },
     });
 
-    // Set new cookies
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax", // align with login/middleware so refresh works cross-site
+      secure: true,
+      sameSite: "none",
       maxAge: 15 * 60 * 1000,
       path: "/",
+      domain: ".vercel.app",
     });
 
     res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax", // align with login/middleware so refresh works cross-site
+      secure: true,
+      sameSite: "none",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
+      domain: ".vercel.app",
     });
+
 
     res.status(200).json({
       success: true,

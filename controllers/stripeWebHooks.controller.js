@@ -126,7 +126,6 @@ const handleCheckoutCompleted = async (session) => {
         }
 
         if (payment.status === "PAID") {
-          console.log(`Payment ${paymentId} already processed, skipping notifications`);
           return null; // Return null to signal that processing was skipped
         }
 
@@ -140,7 +139,6 @@ const handleCheckoutCompleted = async (session) => {
         });
 
         if (existingConfirmed) {
-          console.log(`Booking ${existingConfirmed.id} already confirmed, skipping notifications`);
           return null; // Return null to signal that processing was skipped
         }
 
@@ -206,7 +204,6 @@ const handleCheckoutCompleted = async (session) => {
 
     // If transaction returned null, payment was already processed - skip notifications
     if (!result || result.length === 0) {
-      console.log(`Payment ${paymentId} already processed, exiting webhook handler`);
       return;
     }
 
@@ -292,9 +289,8 @@ const handleCheckoutCompleted = async (session) => {
 
     const payload = {
       title: "New Booking Received",
-      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${
-        user.name
-      }`,
+      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${user.name
+        }`,
       type: "BOOKING_CREATED",
     };
 
@@ -309,7 +305,6 @@ const handleCheckoutCompleted = async (session) => {
       const fcmTokens = await prisma.fCMToken.findMany({
         where: { userId: provider.userId },
       });
-      console.log("fcm Tokens of the provider:", fcmTokens);
 
       if (fcmTokens.length > 0) {
         await NotificationService.sendNotification(
@@ -418,9 +413,9 @@ const handleProviderSubscriptionCompleted = async (session) => {
   const periodEndUnix =
     subscription.current_period_end ??
     subscription.created +
-      (priceItem.price.recurring?.interval === "year"
-        ? 365 * 24 * 60 * 60
-        : 30 * 24 * 60 * 60);
+    (priceItem.price.recurring?.interval === "year"
+      ? 365 * 24 * 60 * 60
+      : 30 * 24 * 60 * 60);
 
   const currentPeriodStart = new Date(periodStartUnix * 1000);
   const currentPeriodEnd = new Date(periodEndUnix * 1000);
