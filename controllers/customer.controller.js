@@ -241,7 +241,6 @@ const getCustomerBookings = async (req, res) => {
         expiresAt: true,
         createdAt: true,
         updatedAt: true,
-        isFeedbackProvided: true,
         service: {
           select: {
             id: true,
@@ -283,6 +282,16 @@ const getCustomerBookings = async (req, res) => {
       skip: skip,
     });
 
+    // Compute feedback flag without relying on isFeedbackProvided column (handles prod schema drift)
+    const bookingIds = bookings.map((b) => b.id);
+    const feedbacks = bookingIds.length
+      ? await prisma.feedback.findMany({
+        where: { bookingId: { in: bookingIds } },
+        select: { bookingId: true },
+      })
+      : [];
+    const feedbackSet = new Set(feedbacks.map((f) => f.bookingId));
+
     const formatted = bookings.map((b) => {
       let paymentLinkInfo = null;
 
@@ -314,7 +323,7 @@ const getCustomerBookings = async (req, res) => {
         date: b.date,
         createdAt: b.createdAt,
         updatedAt: b.updatedAt,
-        isFeedbackProvided: b.isFeedbackProvided,
+        isFeedbackProvided: feedbackSet.has(b.id),
         service: b.service,
         slot: b.slot,
         address: b.address,
