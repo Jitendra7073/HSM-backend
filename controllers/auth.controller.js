@@ -250,11 +250,10 @@ const refreshToken = async (req, res) => {
     const newAccessToken = GenerateAccessToken(user);
     const newRefreshToken = GenerateRefreshToken(user, user.tokenVersion);
 
-    // Delete old refresh token and create new one
-    await prisma.refreshToken.delete({ where: { token } });
-    await prisma.refreshToken.create({
+    // Rotate the refresh token in-place to avoid gaps/races
+    await prisma.refreshToken.update({
+      where: { token },
       data: {
-        userId: user.id,
         token: newRefreshToken,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },

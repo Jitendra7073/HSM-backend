@@ -30,11 +30,10 @@ const refreshAccessToken = async (refreshToken, res) => {
     const newAccessToken = GenerateAccessToken(user);
     const newRefreshToken = GenerateRefreshToken(user, user.tokenVersion);
 
-    // Delete old refresh token and create new one (token rotation)
-    await prisma.refreshToken.delete({ where: { token: refreshToken } });
-    await prisma.refreshToken.create({
+    // Atomically rotate the refresh token to avoid gaps/races
+    await prisma.refreshToken.update({
+      where: { token: refreshToken },
       data: {
-        userId: user.id,
         token: newRefreshToken,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       },
@@ -45,7 +44,7 @@ const refreshAccessToken = async (refreshToken, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 15 * 60 * 1000, 
+      maxAge: 15 * 60 * 1000,
       path: "/",
     });
 
@@ -105,7 +104,7 @@ const checkAuthToken = () => {
       next();
     } catch (error) {
       // Access token expired or invalid - try to refresh silently
-      
+
       if (refreshToken) {
         // Try to refresh using refresh token
         const result = await refreshAccessToken(refreshToken, res);
@@ -114,7 +113,7 @@ const checkAuthToken = () => {
           req.user = result.user;
           return next();
         }
-        
+
         // Refresh failed - only log if it's an unexpected error
         if (error.name !== "JsonWebTokenError" && error.name !== "TokenExpiredError") {
           console.error("Token verification and refresh failed:", error.name);
