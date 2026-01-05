@@ -226,7 +226,7 @@ const providerSubscriptionCheckout = async (req, res) => {
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-    const { priceId } = req.body;
+    const { priceId, isTrial = false } = req.body;
 
     if (!priceId) {
       return res.status(400).json({ msg: "Subscription plan required" });
@@ -237,9 +237,11 @@ const providerSubscriptionCheckout = async (req, res) => {
       where: { id: userId },
       select: {
         id: true,
+        name: true,
         email: true,
         role: true,
-        businessProfile: { select: { id: true } },
+        businessProfile: { select: { id: true, businessName: true } },
+        providerSubscription: true,
       },
     });
 
@@ -253,29 +255,49 @@ const providerSubscriptionCheckout = async (req, res) => {
         .json({ msg: "Create business profile before subscribing" });
     }
 
-    const session = await stripe.checkout.sessions.create({
+    // Check if already has an active subscription or trial
+    if (provider.providerSubscription) {
+      return res.status(400).json({ msg: "You already have an active subscription" });
+    }
+
+    const sessionConfig = {
       mode: "subscription",
       payment_method_types: ["card"],
       customer_email: provider.email,
-
       line_items: [
         {
           price: priceId,
           quantity: 1,
         },
       ],
-
       metadata: {
         userId,
         businessProfileId: provider.businessProfile.id,
         subscriptionType: "PROVIDER",
+        isTrial: isTrial ? "true" : "false",
+        providerName: provider.name,
+        businessName: provider.businessProfile.businessName,
       },
-
       success_url: `${process.env.FRONTEND_PROVIDER_SUCCESS_URL}`,
       cancel_url: `${process.env.FRONTEND_PROVIDER_CANCEL_URL}`,
-    });
+    };
+
+    // Add 7-day free trial if requested
+    if (isTrial) {
+      sessionConfig.subscription_data = {
+        trial_period_days: 30,
+        trial_settings: {
+          end_behavior: {
+            missing_payment_method: "cancel",
+          },
+        },
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionConfig);
     return res.status(200).json({ url: session.url });
   } catch (err) {
+    console.error("Subscription checkout error:", err);
     return res
       .status(500)
       .json({ msg: "Failed to create subscription checkout" });

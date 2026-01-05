@@ -166,15 +166,16 @@ const getProviderById = async (req, res) => {
                 reviewCount: true,
                 totalBookingAllow: true,
                 isActive: true,
+                feedback: true,
               },
-              take: 50, // Limit to first 50 services
+              take: 50,
             },
             slots: {
               select: {
                 id: true,
                 time: true,
               },
-              take: 50, // Limit to first 50 slots
+              take: 50,
             },
           },
         },
@@ -188,7 +189,7 @@ const getProviderById = async (req, res) => {
             country: true,
             type: true,
           },
-          take: 5, // Limit to first 5 addresses
+          take: 5,
         },
       },
     });
@@ -212,7 +213,6 @@ const getProviderById = async (req, res) => {
   }
 };
 
-/* ---------------- GET CUSTOMER BOOKINGS ---------------- */
 /* ---------------- GET CUSTOMER BOOKINGS (WITH PAGINATION) ---------------- */
 const getCustomerBookings = async (req, res) => {
   const customerId = req.user.id;
@@ -286,9 +286,9 @@ const getCustomerBookings = async (req, res) => {
     const bookingIds = bookings.map((b) => b.id);
     const feedbacks = bookingIds.length
       ? await prisma.feedback.findMany({
-        where: { bookingId: { in: bookingIds } },
-        select: { bookingId: true },
-      })
+          where: { bookingId: { in: bookingIds } },
+          select: { bookingId: true },
+        })
       : [];
     const feedbackSet = new Set(feedbacks.map((f) => f.bookingId));
 
@@ -457,9 +457,7 @@ const cancelBooking = async (req, res) => {
     let refundAmount = 0;
 
     if (booking.paymentStatus === "PAID") {
-      cancellationFee = Math.round(
-        (booking.totalAmount * feePercentage) / 100
-      );
+      cancellationFee = Math.round((booking.totalAmount * feePercentage) / 100);
       refundAmount = booking.totalAmount - cancellationFee;
     }
 
@@ -484,7 +482,8 @@ const cancelBooking = async (req, res) => {
         where: { id: booking.id },
         data: {
           bookingStatus: "CANCELLED",
-          paymentStatus: booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
+          paymentStatus:
+            booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
         },
       });
     });
@@ -534,7 +533,10 @@ const cancelBooking = async (req, res) => {
             refundStatus = "PAID";
           } else if (refund.status === "pending") {
             refundStatus = "PROCESSING"; // More accurate status for customer
-          } else if (refund.status === "failed" || refund.status === "canceled") {
+          } else if (
+            refund.status === "failed" ||
+            refund.status === "canceled"
+          ) {
             refundStatus = "FAILED";
           }
 
@@ -545,7 +547,6 @@ const cancelBooking = async (req, res) => {
               refundedAt: refund.status === "succeeded" ? new Date() : null,
             },
           });
-
         } else {
           console.warn(`⚠️  No payment intent found for booking ${booking.id}`);
           // Still create cancellation record even if no payment found
@@ -583,13 +584,16 @@ const cancelBooking = async (req, res) => {
         return "";
       }
 
-      const feeMsg = cancellationFee > 0 ? ` (Cancellation fee: ₹${cancellationFee})` : "";
+      const feeMsg =
+        cancellationFee > 0 ? ` (Cancellation fee: ₹${cancellationFee})` : "";
       return ` ₹${refundAmount} refund is being processed${feeMsg}. You'll receive it within 5-7 business days.`;
     };
 
     const customerPayload = {
       title: "Booking Cancelled Successfully",
-      body: `Your booking for ${booking.service.name} has been cancelled.${getRefundStatusMessage()}`,
+      body: `Your booking for ${
+        booking.service.name
+      } has been cancelled.${getRefundStatusMessage()}`,
       type: "BOOKING_CANCELLED",
     };
 
@@ -627,10 +631,13 @@ const cancelBooking = async (req, res) => {
       title: "Booking Cancelled by Customer",
       body:
         booking.paymentStatus === "PAID"
-          ? `Customer cancelled booking for ${booking.service.name}. Refund of ₹${refundAmount} is being processed${cancellationFee > 0
-            ? ` (Cancellation fee: ₹${cancellationFee} deducted)`
-            : ""
-          }.`
+          ? `Customer cancelled booking for ${
+              booking.service.name
+            }. Refund of ₹${refundAmount} is being processed${
+              cancellationFee > 0
+                ? ` (Cancellation fee: ₹${cancellationFee} deducted)`
+                : ""
+            }.`
           : `Customer cancelled unpaid booking for ${booking.service.name}.`,
       type: "BOOKING_CANCELLED",
     };

@@ -629,10 +629,151 @@ function providerSubscriptionSuccessEmailTemplate({
   `;
 }
 
+/* ---------------- PROVIDER TRIAL STARTED ---------------- */
+function providerTrialStartedEmailTemplate({
+  providerName,
+  businessName,
+  planName,
+  trialEndDate,
+  planPrice,
+}) {
+  const endDate = new Date(trialEndDate).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Your 7-Day Free Trial Has Started!</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+
+<!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
+    <tr>
+      <td style="padding:24px;">
+
+        <!-- Main Container -->
+        <table width="100%" cellpadding="0" cellspacing="0"
+          style="max-width:720px; margin:0 auto; background-color:#ffffff; border-collapse:collapse;">
+
+          <!-- Header with Trial Badge -->
+          <tr>
+            <td style="padding:20px 24px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); text-align:center;">
+              <h1 style="margin:0; font-size:24px; font-weight:700; color:#ffffff;">
+                🎉 Your Free Trial Has Started!
+              </h1>
+              <p style="margin:8px 0 0; font-size:14px; color:#ffffff; opacity:0.95;">
+                Welcome to ${planName} Plan Premium Features
+              </p>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:32px 24px; font-size:14px; line-height:1.6;">
+
+              <p style="margin:0 0 12px;">
+                Hi <strong>${providerName}</strong>,
+              </p>
+
+              <p style="margin:0 0 16px;">
+                Great news! Your <strong>7-day free trial</strong> for the <strong>${planName}</strong> plan has started. 
+                You now have full access to all premium features to grow your business.
+              </p>
+
+              <!-- Trial Info Box -->
+              <div style="background-color:#f0fdf4; border-left:4px solid #22c55e; padding:16px; margin:24px 0;">
+                <p style="margin:0 0 8px; font-weight:600; color:#166534;">
+                  ✨ Trial Period: 7 Days
+                </p>
+                <p style="margin:0; font-size:13px; color:#15803d;">
+                  Your trial ends on <strong>${endDate}</strong>
+                </p>
+                <p style="margin:8px 0 0; font-size:13px; color:#15803d;">
+                  After trial: ₹${planPrice}/month
+                </p>
+              </div>
+
+              <!-- What's Included -->
+              <h3 style="margin:24px 0 12px; font-size:16px; font-weight:600;">
+                What's Included in Your Trial
+              </h3>
+
+              <ul style="margin:0; padding-left:20px; color:#4b5563;">
+                <li style="margin-bottom:8px;">✅ Publish your business profile</li>
+                <li style="margin-bottom:8px;">✅ Receive customer bookings</li>
+                <li style="margin-bottom:8px;">✅ Advanced business analytics</li>
+                <li style="margin-bottom:8px;">✅ Priority support</li>
+                <li style="margin-bottom:8px;">✅ Higher search visibility</li>
+              </ul>
+
+              <!-- Important Note -->
+              <div style="background-color:#fef3c7; border-left:4px solid #f59e0b; padding:16px; margin:24px 0;">
+                <p style="margin:0 0 8px; font-weight:600; color:#92400e;">
+                  📌 Important Information
+                </p>
+                <p style="margin:0; font-size:13px; color:#78350f;">
+                  Your trial will automatically convert to a paid subscription on <strong>${endDate}</strong>.
+                  You can cancel anytime before the trial ends to avoid charges.
+                </p>
+              </div>
+
+              <!-- Support -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                Need help getting started? Our support team is here for you.
+              </p>
+
+              <p style="margin:6px 0 0; font-size:13px;">
+                <a href="mailto:support@hsmgmail.com"
+                   style="color:#2563eb; text-decoration:none;">
+                  support@hsmgmail.com
+                </a>
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280; text-align:center;">
+              <p style="margin:0 0 8px;">© ${new Date().getFullYear()} ${businessName}. All rights reserved.</p>
+              <p style="margin:0;">You're receiving this email because you started a free trial.</p>
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
+  `;
+}
+
 module.exports = {
   welcomeUserTamplate,
   forgotPasswordTamplate,
   bookingSuccessEmailTemplate,
   bookingFailedEmailTemplate,
   providerSubscriptionSuccessEmailTemplate,
+  providerTrialStartedEmailTemplate,
 };

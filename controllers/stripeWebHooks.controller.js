@@ -364,7 +364,7 @@ const handleCheckoutCompleted = async (session) => {
 /* ----------------------- PROVIDER SUBSCRIPTION SUCCESS ----------------------- */
 
 const handleProviderSubscriptionCompleted = async (session) => {
-  const { userId, subscriptionType } = session.metadata || {};
+  const { userId, subscriptionType, isTrial, providerName, businessName } = session.metadata || {};
   if (!userId || subscriptionType !== "PROVIDER") {
     console.warn("Invalid subscription metadata");
     return;
@@ -410,15 +410,19 @@ const handleProviderSubscriptionCompleted = async (session) => {
   const periodStartUnix =
     subscription.current_period_start ?? subscription.created;
 
-  const periodEndUnix =
-    subscription.current_period_end ??
-    subscription.created +
-    (priceItem.price.recurring?.interval === "year"
-      ? 365 * 24 * 60 * 60
-      : 30 * 24 * 60 * 60);
+  // Use trial_end for trial period, current_period_end for active subscription
+  const periodEndUnix = subscription.status === "trialing" 
+    ? subscription.trial_end 
+    : (subscription.current_period_end ??
+      subscription.created +
+      (priceItem.price.recurring?.interval === "year"
+        ? 365 * 24 * 60 * 60
+        : 30 * 24 * 60 * 60));
 
   const currentPeriodStart = new Date(periodStartUnix * 1000);
   const currentPeriodEnd = new Date(periodEndUnix * 1000);
+
+  const isInTrial = subscription.status === "trialing";
 
   /* ----------------------- UPSERT ----------------------- */
   await prisma.ProviderSubscription.upsert({
@@ -439,75 +443,106 @@ const handleProviderSubscriptionCompleted = async (session) => {
     },
   });
 
-  /* ---------------- EMAIL ---------------- */
+  /* ---------------- EMAIL FOR TRIAL OR SUBSCRIPTION ---------------- */
   try {
-    const invoiceData = {
-      business: {
+    if (isInTrial && isTrial === "true") {
+      // Send trial started email
+      const { sendMail } = require("../utils/sendmail");
+      const { providerTrialStartedEmailTemplate } = require("../helper/mail-tamplates/tamplates");
+
+      await sendMail({
         email: business.contactEmail,
-        phone: business.phoneNumber,
-        website: business.websiteURL,
-      },
-      invoice: {
-        number: business.id.slice(0, 6) + "_" + business.userId.slice(0, 6),
-        date: new Date(),
-      },
-      provider: {
-        name: provider.name,
-        email: provider.email,
-        phone: provider.mobile,
-        address: `${provider.addresses.street}, ${provider.addresses.city}, ${provider.addresses.state}-${provider.addresses.postalCode}`,
-      },
-      subscription: {
-        periodStart: currentPeriodStart,
-        periodEnd: currentPeriodEnd,
-        status: subscription.status,
-      },
-      plan: {
-        name: plan.name,
-        price: plan.price,
-        billingCycle: plan.interval,
-      },
-      payment: {
-        status: subscription.status,
-        method: "Stripe",
-        stripeSubscriptionId: subscription.id,
-      },
-    };
+        subject: "Your 7-Day Free Trial Has Started!",
+        template: providerTrialStartedEmailTemplate({
+          providerName: provider.name,
+          businessName: business.businessName,
+          planName: plan.name,
+          trialEndDate: currentPeriodEnd,
+          planPrice: plan.price,
+        }),
+      });
 
-    const pdfBuffer = await generateProviderSubscriptionInvoicePDF(invoiceData);
-
-    await sendMail({
-      email: business.contactEmail,
-      subject: "Subscription Activated",
-      template: providerSubscriptionSuccessEmailTemplate({
-        providerName: provider.name,
-        businessName: business.businessName,
-        planName: plan.name,
-        planAmount: plan.price,
-        subscriptionId: subscription.id,
-        subscriptionStart: currentPeriodStart,
-        subscriptionEnd: currentPeriodEnd,
-      }),
-      attachments: [
-        {
-          filename: "invoice.pdf",
-          content: pdfBuffer,
+      // Store notification
+      const { storeNotification } = require("./notification.controller");
+      await storeNotification(
+        "Free Trial Started!",
+        `Your 7-day free trial for ${plan.name} plan has started. Enjoy premium features!`,
+        userId
+      );
+    } else {
+      // Send subscription activated email with invoice
+      const invoiceData = {
+        business: {
+          email: business.contactEmail,
+          phone: business.phoneNumber,
+          website: business.websiteURL,
         },
-      ],
-    });
+        invoice: {
+          number: business.id.slice(0, 6) + "_" + business.userId.slice(0, 6),
+          date: new Date(),
+        },
+        provider: {
+          name: provider.name,
+          email: provider.email,
+          phone: provider.mobile,
+          address: `${provider.addresses.street}, ${provider.addresses.city}, ${provider.addresses.state}-${provider.addresses.postalCode}`,
+        },
+        subscription: {
+          periodStart: currentPeriodStart,
+          periodEnd: currentPeriodEnd,
+          status: subscription.status,
+        },
+        plan: {
+          name: plan.name,
+          price: plan.price,
+          billingCycle: plan.interval,
+        },
+        payment: {
+          status: subscription.status,
+          method: "Stripe",
+          stripeSubscriptionId: subscription.id,
+        },
+      };
+
+      const pdfBuffer = await generateProviderSubscriptionInvoicePDF(invoiceData);
+
+      await sendMail({
+        email: business.contactEmail,
+        subject: "Subscription Activated",
+        template: providerSubscriptionSuccessEmailTemplate({
+          providerName: provider.name,
+          businessName: business.businessName,
+          planName: plan.name,
+          planAmount: plan.price,
+          subscriptionId: subscription.id,
+          subscriptionStart: currentPeriodStart,
+          subscriptionEnd: currentPeriodEnd,
+        }),
+        attachments: [
+          {
+            filename: "invoice.pdf",
+            content: pdfBuffer,
+          },
+        ],
+      });
+    }
   } catch (err) {
-    console.error("Failed to generate/send invoice email:", err);
+    console.error("Failed to send email:", err);
   }
 };
 
 /* ------------------------ PROVIDER SUBSCRIPTION UPDATE / CANCEL ------------------------ */
 
 const handleProviderSubscriptionUpdated = async (subscription) => {
+  const periodEndUnix = subscription.status === "trialing" 
+    ? subscription.trial_end 
+    : subscription.current_period_end;
+
   await prisma.ProviderSubscription.updateMany({
     where: { stripeSubscriptionId: subscription.id },
     data: {
       status: subscription.status,
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      currentPeriodEnd: new Date(periodEndUnix * 1000),
     },
   });
 };
