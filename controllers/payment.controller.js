@@ -285,7 +285,7 @@ const providerSubscriptionCheckout = async (req, res) => {
     // Add 7-day free trial if requested
     if (isTrial) {
       sessionConfig.subscription_data = {
-        trial_period_days: 30,
+        trial_period_days: 7,
         trial_settings: {
           end_behavior: {
             missing_payment_method: "cancel",

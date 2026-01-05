@@ -21,7 +21,9 @@ const getAllProviders = async (req, res) => {
       where: {
         role: "provider",
         providerSubscription: {
-          status: "active",
+          status: {
+            in: ["active", "trialing"],
+          },
           currentPeriodEnd: {
             gt: new Date(),
           },
@@ -37,7 +39,9 @@ const getAllProviders = async (req, res) => {
       where: {
         role: "provider",
         providerSubscription: {
-          status: "active",
+          status: {
+            in: ["active", "trialing"],
+          },
           currentPeriodEnd: {
             gt: new Date(),
           },
