@@ -97,21 +97,29 @@ const login = async (req, res) => {
     });
 
     // Set cookies
-    res.cookie("accessToken", accessToken, {
+    // Determine cookie settings based on environment
+    const isProduction = process.env.NODE_ENV === "production";
+    const cookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 15 * 60 * 1000, // 15 minutes
       path: "/",
-    });
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
+    };
 
-    res.cookie("refreshToken", refreshToken, {
+    const refreshCookieOptions = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: "/",
-    });
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
+    };
+
+    res.cookie("accessToken", accessToken, cookieOptions);
+
+    res.cookie("refreshToken", refreshToken, refreshCookieOptions);
 
     res.status(200).json({
       success: true,
@@ -259,23 +267,29 @@ const refreshToken = async (req, res) => {
       },
     });
 
-    res.cookie("accessToken", newAccessToken, {
+    // Determine cookie settings based on environment
+    const isProduction = process.env.NODE_ENV === "production";
+    const cookieOptions = {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      maxAge: 15 * 60 * 1000,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 15 * 60 * 1000, // 15 minutes
       path: "/",
-      domain: ".vercel.app",
-    });
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
+    };
 
-    res.cookie("refreshToken", newRefreshToken, {
+    const refreshCookieOptions = {
       httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: "/",
-      domain: ".vercel.app",
-    });
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
+    };
+
+    res.cookie("accessToken", newAccessToken, cookieOptions);
+
+    res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
 
 
     res.status(200).json({
