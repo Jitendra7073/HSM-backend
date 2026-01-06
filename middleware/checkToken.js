@@ -40,12 +40,14 @@ const refreshAccessToken = async (refreshToken, res) => {
     });
 
     // Set new cookies
+    const isProduction = process.env.NODE_ENV === "production";
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
       maxAge: 15 * 60 * 1000,
       path: "/",
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
     });
 
     res.cookie("refreshToken", newRefreshToken, {

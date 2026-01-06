@@ -393,8 +393,27 @@ const cancelBooking = async (req, res) => {
 
   /* ---------- helper: parse slot time (12h → 24h) ---------- */
   const parseSlotTimeTo24H = (timeStr) => {
-    const [time, modifier] = timeStr.split(" ");
-    let [hours, minutes] = time.split(":").map(Number);
+    if (!timeStr) return { hours: 0, minutes: 0 };
+    
+    // Handle "10:30 AM", "10:30AM", "14:00"
+    // Normalize string: remove extra spaces, uppercase
+    const normalized = timeStr.toUpperCase().trim();
+    
+    let timePart = normalized;
+    let modifier = "";
+    
+    if (normalized.includes("PM")) {
+      modifier = "PM";
+      timePart = normalized.replace("PM", "").trim();
+    } else if (normalized.includes("AM")) {
+      modifier = "AM";
+      timePart = normalized.replace("AM", "").trim();
+    }
+    
+    let [hours, minutes] = timePart.split(":").map(Number);
+    
+    if (isNaN(hours)) hours = 0;
+    if (isNaN(minutes)) minutes = 0;
 
     if (modifier === "PM" && hours !== 12) hours += 12;
     if (modifier === "AM" && hours === 12) hours = 0;
@@ -442,16 +461,44 @@ const cancelBooking = async (req, res) => {
       });
     }
 
-    const bookingDate = new Date(booking.date);
-    const { hours, minutes } = parseSlotTimeTo24H(booking.slot.time);
+    let serviceStart;
+    try {
+      // Robust date parsing
+      const bookingDate = new Date(booking.date);
+      const { hours, minutes } = parseSlotTimeTo24H(booking.slot.time);
 
-    const serviceStart = new Date(bookingDate);
-    serviceStart.setHours(hours, minutes, 0, 0);
+      serviceStart = new Date(bookingDate);
+      // If booking.date was invalid or in incompatible format
+      if (isNaN(serviceStart.getTime())) {
+          // Attempt to parse manually if it's YYYY-MM-DD or DD-MM-YYYY
+          // Assuming date is string. If it's stored as "YYYY-MM-DD" it should work.
+          // If stored as "06-01-2025" (DD-MM-YYYY)
+           const parts = booking.date.split(/[-/]/);
+           if (parts.length === 3) {
+               // Heuristic: if first part > 12 likely YYYY? or YYYY is usually 4 digits
+               if (parts[0].length === 4) {
+                   // YYYY-MM-DD
+                   serviceStart = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
+               } else {
+                   // Assume DD-MM-YYYY (or MM-DD-YYYY depending on locale, but DD-MM is more common in IN)
+                   // Try MM-DD-YYYY first? No, User is "EnactOn" (India likely -> DD-MM-YYYY)
+                   // But `new Date` prefers MM-DD-YYYY in US locale.
+                   // Let's safe convert to YYYY-MM-DD
+                   serviceStart = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`); 
+               }
+           }
+      }
 
-    if (isNaN(serviceStart.getTime())) {
-      return res.status(400).json({
+      if (isNaN(serviceStart.getTime())) {
+        throw new Error("Invalid date");
+      }
+      
+      serviceStart.setHours(hours, minutes, 0, 0);
+    } catch (e) {
+       console.error("Date parsing error for booking:", booking.id, booking.date, e);
+       return res.status(400).json({
         success: false,
-        msg: "Invalid service start time.",
+        msg: "Invalid service start time format in booking.",
       });
     }
 
@@ -708,6 +755,7 @@ const cancelBooking = async (req, res) => {
     return res.status(500).json({
       success: false,
       msg: "Something went wrong while cancelling the booking.",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
