@@ -36,7 +36,6 @@ const stripeWebhookHandler = async (req, res) => {
   }
 
   try {
-    console.log("--> Stripe Event:", event.type);
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;

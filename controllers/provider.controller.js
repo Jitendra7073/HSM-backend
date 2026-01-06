@@ -1,7 +1,9 @@
 const prisma = require("../prismaClient");
 const { lemmatizer } = require("lemmatizer");
 const NotificationService = require("../service/notification-service");
-const { formatCancellationDetails } = require("../helper/cancellationFormatter");
+const {
+  formatCancellationDetails,
+} = require("../helper/cancellationFormatter");
 
 /* ---------------- VALIDATION SCHEMAS ---------------- */
 const {
@@ -222,7 +224,9 @@ const getAllBusinessCategory = async (req, res) => {
         },
         providerSubscription: {
           is: {
-            status: "active",
+            status: {
+              in: ["active", "trialing"],
+            },
           },
         },
       },
@@ -838,7 +842,7 @@ const createSingleSlot = async (req, res) => {
       msg: "Slot created successfully.",
       slot: newSlot,
     });
-  } catch (error) { }
+  } catch (error) {}
 };
 
 const getAllSlots = async (req, res) => {
@@ -1139,8 +1143,9 @@ const updateBooking = async (req, res) => {
 
     const notificationPayload = {
       title: `Booking ${normalizedStatus}`,
-      body: `Your ${booking.service?.name || "service"
-        } booking has been ${normalizedStatus}.`,
+      body: `Your ${
+        booking.service?.name || "service"
+      } booking has been ${normalizedStatus}.`,
       type: "BOOKING_STATUS_UPDATED",
     };
 
@@ -1418,7 +1423,7 @@ const getAllSubscriptionPlans = async (req, res) => {
   try {
     const plans = await prisma.ProviderSubscriptionPlan.findMany();
     return res.status(200).json({ success: true, plans });
-  } catch (error) { }
+  } catch (error) {}
 };
 
 /* ---------------- SERVICE FEEDBACK ---------------- */
@@ -1454,7 +1459,6 @@ const GetAllCancellationBookings = async (req, res) => {
         bookings: [],
       });
     }
-
 
     const bookingsList = await Promise.all(
       cancelledBookings.map(async (booking) => {

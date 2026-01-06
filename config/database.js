@@ -12,10 +12,10 @@ const pool = new Pool({
 const ConnectDB = async () => {
   try {
     const client = await pool.connect();
-    console.log("Neon PostgreSQL Connected Successfully");
+    console.log("DB Connected Successfully");
     client.release();
   } catch (error) {
-    console.error("Failed to connect with Neon DB:", error.message);
+    console.error("Failed to connect with DB:", error.message);
   }
 };
 

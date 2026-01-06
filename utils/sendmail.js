@@ -24,7 +24,7 @@ const sendMail = async ({ email, subject, template, attachments = null }) => {
 
   await transporter.sendMail(mailOptions);
 
-  console.log(`Email sent successfully to ${email}`);
+  console.log(`Email sent successfully`);
 };
 
 module.exports = {

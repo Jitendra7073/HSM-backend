@@ -552,7 +552,7 @@ const cancelBooking = async (req, res) => {
             },
           });
         } else {
-          console.warn(`⚠️  No payment intent found for booking ${booking.id}`);
+          console.warn(`No payment intent found for booking ${booking.id}`);
           // Still create cancellation record even if no payment found
           await prisma.Cancellation.update({
             where: { bookingId: booking.id },
@@ -562,7 +562,7 @@ const cancelBooking = async (req, res) => {
           });
         }
       } catch (refundError) {
-        console.error("❌ Refund processing error:", refundError.message);
+        console.error("Refund processing error:", refundError.message);
         // Update cancellation to show refund pending (can be processed manually)
         try {
           await prisma.Cancellation.update({

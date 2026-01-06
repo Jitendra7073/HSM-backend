@@ -89,9 +89,6 @@ server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 
   /* ---------------- START SCHEDULER JOBS ---------------- */
-  // startBookingCleanupJob();
-  // console.log("Booking cleanup job started - runs every 30 seconds");
-
-  // startBookingCancellationCleanupJob();
-  // console.log("Auto-approve cancellations job started - runs every 7 days");
+  startBookingCleanupJob();
+  console.log("Booking cleanup job started - runs every 30 seconds");
 });
