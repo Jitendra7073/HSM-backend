@@ -1,5 +1,15 @@
 const prisma = require("../prismaClient");
+const Joi = require("joi");
 const { sendMail } = require("../utils/sendmail");
+
+// Joi schema for restriction reason
+const restrictReasonSchema = Joi.object({
+  reason: Joi.string().trim().min(3).required().messages({
+    "string.empty": "Restriction reason is required",
+    "string.min": "Restriction reason must be at least 3 characters long",
+    "any.required": "Restriction reason is required",
+  }),
+});
 const {
   userRestrictionEmailTemplate,
   userRestrictionLiftedEmailTemplate,
@@ -138,14 +148,13 @@ const getUserById = async (req, res) => {
 const restrictUser = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { error } = restrictReasonSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
+
     const { reason } = req.body;
     const adminId = req.user.id;
-
-    if (!reason || reason.trim().length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Restriction reason is required" });
-    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -455,14 +464,13 @@ const approveBusiness = async (req, res) => {
 const restrictBusiness = async (req, res) => {
   try {
     const { businessId } = req.params;
+    const { error } = restrictReasonSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
+
     const { reason } = req.body;
     const adminId = req.user.id;
-
-    if (!reason || reason.trim().length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Restriction reason is required" });
-    }
 
     const business = await prisma.businessProfile.findUnique({
       where: { id: businessId },
@@ -725,14 +733,13 @@ const getServiceById = async (req, res) => {
 const restrictService = async (req, res) => {
   try {
     const { serviceId } = req.params;
+    const { error } = restrictReasonSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
+
     const { reason } = req.body;
     const adminId = req.user.id;
-
-    if (!reason || reason.trim().length === 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Restriction reason is required" });
-    }
 
     const service = await prisma.service.findUnique({
       where: { id: serviceId },

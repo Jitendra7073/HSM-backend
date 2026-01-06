@@ -1,6 +1,12 @@
 const express = require("express");
 const route = express.Router();
 const AdminController = require("../controllers/admin.controller");
+const { checkAuthToken } = require("../middleware/checkToken");
+const { RoleBasedAccess } = require("../middleware/checkRole");
+
+// Apply middleware to all admin routes
+route.use(checkAuthToken());
+route.use(RoleBasedAccess("admin"));
 
 /* ------------------ USER MANAGEMENT ROUTES ------------------ */
 route.get("/users", AdminController.getAllUsers);
