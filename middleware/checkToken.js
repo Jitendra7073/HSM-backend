@@ -102,7 +102,28 @@ const checkAuthToken = () => {
         });
       }
 
-      req.user = User;
+      // Check if user is restricted (skip for admin users)
+      const user = await prisma.user.findUnique({
+        where: { id: User.id },
+        select: { isRestricted: true, role: true, id: true, name: true, email: true, mobile: true, role: true, tokenVersion: true, createdAt: true },
+      });
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          msg: "User not found!",
+        });
+      }
+
+      // Check if user is restricted (allow admins to access)
+      if (user.isRestricted && user.role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          msg: "Your account has been restricted. Please contact support for assistance.",
+        });
+      }
+
+      req.user = user;
       next();
     } catch (error) {
       // Access token expired or invalid - try to refresh silently
@@ -112,7 +133,20 @@ const checkAuthToken = () => {
         const result = await refreshAccessToken(refreshToken, res);
 
         if (result) {
-          req.user = result.user;
+          // Check if user is restricted (skip for admin users)
+          const user = await prisma.user.findUnique({
+            where: { id: result.user.id },
+            select: { isRestricted: true, role: true, id: true, name: true, email: true, mobile: true, role: true, tokenVersion: true, createdAt: true },
+          });
+
+          if (user && user.isRestricted && user.role !== "admin") {
+            return res.status(403).json({
+              success: false,
+              msg: "Your account has been restricted. Please contact support for assistance.",
+            });
+          }
+
+          req.user = user || result.user;
           return next();
         }
 

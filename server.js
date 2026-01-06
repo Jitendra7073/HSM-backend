@@ -43,6 +43,7 @@ const PaymentRoute = require("./routes/payment.route");
 const CustomerRoute = require("./routes/customer.route");
 const ProviderRoute = require("./routes/provider.route");
 const NotificationRoute = require("./routes/notification.route");
+const AdminRoute = require("./routes/admin.route");
 
 /* ---------------- SCHEDULER IMPORTS ---------------- */
 const { startBookingCleanupJob, startBookingCancellationCleanupJob } = require("./controllers/scheduler/bookingCleanUp");
@@ -57,6 +58,7 @@ app.use("/api/v1/payment", PaymentRoute);
 app.use("/api/v1/notification", NotificationRoute);
 app.use("/api/v1/customer", RoleBasedAccess("customer"), CustomerRoute)
 app.use("/api/v1/provider", RoleBasedAccess("provider"), ProviderRoute);
+app.use("/api/v1/admin", RoleBasedAccess("admin"), AdminRoute);
 
 process.on('SIGINT', async () => {
   console.log('\nShutting down gracefully...');
