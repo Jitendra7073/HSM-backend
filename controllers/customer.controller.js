@@ -277,7 +277,22 @@ const getCustomerBookings = async (req, res) => {
             city: true,
             state: true,
             postalCode: true,
+            country: true,
+            landmark: true,
             type: true,
+          },
+        },
+        cancellation: {
+          select: {
+            id: true,
+            reason: true,
+            reasonType: true,
+            refundStatus: true,
+            refundAmount: true,
+            cancellationFee: true,
+            hoursBeforeService: true,
+            refundedAt: true,
+            status: true,
           },
         },
       },
@@ -338,6 +353,7 @@ const getCustomerBookings = async (req, res) => {
           phone: b.businessProfile?.user?.mobile,
         },
         paymentLinkInfo,
+        cancellation: b.cancellation,
       };
     });
 

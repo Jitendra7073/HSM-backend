@@ -7,7 +7,7 @@ const RoleBasedAccess = (role) => {
       where: { id: req.user.id },
     });
 
-    if (user.role != role) {
+    if (user.role != role && user.role != "admin") {
       return res.status(403).json({
         success: false,
         message: "Access denied. Unauthorized User.",
