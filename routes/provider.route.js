@@ -41,6 +41,11 @@ route
   .get(ProviderController.getAllBusinessCategory)
   .post(ProviderController.createBusinessCategory);
 
+route
+  .route("/business-category/:categoryId")
+  .patch(ProviderController.updateBusinessCategory)
+  .delete(ProviderController.deleteBusinessCategory);
+
 /* ---------------- DASHBOARD STATES ROUTE ---------------- */
 route.get("/dashboard/stats", ProviderController.getDashboardStats);
 

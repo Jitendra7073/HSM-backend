@@ -77,7 +77,55 @@ const createBusiness = async (req, res) => {
         userId,
         businessCategoryId: businessCategory.id,
       },
+      include: {
+        // user: true, // Optimzation: we might not need to fetch user back immediately if not used
+      },
     });
+
+    // ---------------- NOTIFY ADMINS ----------------
+    try {
+      // 1. Find all admins
+      const admins = await prisma.user.findMany({
+        where: { role: "admin" },
+        select: { id: true },
+      });
+
+      if (admins.length > 0) {
+        const adminIds = admins.map((a) => a.id);
+
+        // 2. Prepare Notification Payload
+        const title = "New Business Registration";
+        const body = `New business "${newBusiness.businessName}" has registered and is pending approval.`;
+
+        // 3. Store Notification for each admin
+        // Note: Ideally bulk create, but storeNotification is single. Loops are okay for small admin count.
+        // For scalability, we might want a bulkStoreNotification in future.
+        for (const adminId of adminIds) {
+          await storeNotification(title, body, adminId, userId);
+        }
+
+        // 4. Send Push Notification to Admins
+        const adminTokens = await prisma.FCMToken.findMany({
+          where: {
+            userId: { in: adminIds },
+            isActive: true,
+          },
+          select: { token: true },
+        });
+
+        if (adminTokens.length > 0) {
+          const tokens = adminTokens.map((t) => t.token);
+          await NotificationService.sendNotification(tokens, title, body, {
+            type: "BUSINESS_APPROVAL",
+            businessId: newBusiness.id,
+            click_action: "ADMIN_BUSINESS_LIST", // Example action
+          });
+        }
+      }
+    } catch (notifyError) {
+      console.error("Failed to notify admins about new business:", notifyError);
+      // Suppress error so business creation doesn't fail
+    }
 
     return res.status(201).json({
       success: true,
@@ -192,85 +240,76 @@ const deleteBusiness = async (req, res) => {
 /* ---------------- BUSINESS CATEGORY ---------------- */
 const getAllBusinessCategory = async (req, res) => {
   try {
-    const categories = await prisma.Businesscategory.findMany({
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10)); // Default 10
+    const skip = (page - 1) * limit;
+    const { search } = req.query;
 
-    const allProviders = await prisma.user.findMany({
-      where: {
-        businessProfile: {
-          isNot: null,
-        },
-      },
-      select: {
-        businessProfile: {
-          select: {
-            businessCategoryId: true,
-          },
-        },
-      },
-    });
+    const where = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
+      ];
+    }
 
-    const activeProviders = await prisma.user.findMany({
-      where: {
-        businessProfile: {
-          isNot: null,
+    const [categories, total] = await Promise.all([
+      prisma.Businesscategory.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          createdAt: true,
+          updatedAt: true,
         },
-        providerSubscription: {
-          is: {
-            status: {
-              in: ["active", "trialing"],
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.Businesscategory.count({ where }),
+    ]);
+
+    // Calculate counts for fetched categories
+    const categoriesWithCounts = await Promise.all(
+      categories.map(async (category) => {
+        const totalProvidersCount = await prisma.businessProfile.count({
+          where: { businessCategoryId: category.id },
+        });
+
+        const activeProvidersCount = await prisma.user.count({
+          where: {
+            businessProfile: {
+              businessCategoryId: category.id,
+            },
+            providerSubscription: {
+              is: {
+                status: {
+                  in: ["active", "trialing"],
+                },
+              },
             },
           },
-        },
-      },
-      select: {
-        businessProfile: {
-          select: {
-            businessCategoryId: true,
-          },
-        },
-      },
-    });
+        });
 
-    //  Build TOTAL  provider count map
-    const totalProviderCountMap = allProviders.reduce((acc, user) => {
-      const categoryId = user.businessProfile?.businessCategoryId;
-      if (!categoryId) return acc;
-
-      acc[categoryId] = (acc[categoryId] || 0) + 1;
-      return acc;
-    }, {});
-
-    //  Build ACTIVE provider count map
-    const activeProviderCountMap = activeProviders.reduce((acc, user) => {
-      const categoryId = user.businessProfile?.businessCategoryId;
-      if (!categoryId) return acc;
-
-      acc[categoryId] = (acc[categoryId] || 0) + 1;
-      return acc;
-    }, {});
-
-    const categoriesWithCounts = categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      description: category.description,
-      createdAt: category.createdAt,
-      updatedAt: category.updatedAt,
-      totalProvidersCount: totalProviderCountMap[category.id] || 0,
-      activeProvidersCount: activeProviderCountMap[category.id] || 0,
-    }));
+        return {
+          ...category,
+          totalProvidersCount,
+          activeProvidersCount,
+        };
+      })
+    );
 
     return res.status(200).json({
       success: true,
       msg: "Business Category fetched successfully.",
       count: categoriesWithCounts.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
       categories: categoriesWithCounts,
     });
   } catch (error) {
@@ -341,6 +380,117 @@ const createBusinessCategory = async (req, res) => {
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not create business category.",
+    });
+  }
+};
+
+/* ---------------- UPDATE BUSINESS CATEGORY ---------------- */
+const updateBusinessCategory = async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      msg: "Access denied. Admin privileges required.",
+    });
+  }
+
+  const { categoryId } = req.params;
+  const { name, description } = req.body;
+
+  if (!name || name.trim().length < 3) {
+    return res.status(400).json({
+      success: false,
+      msg: "Name is required and must be at least 3 characters long.",
+    });
+  }
+  if (!description || description.trim().length < 10) {
+    return res.status(400).json({
+      success: false,
+      msg: "Description is required and must be at least 10 characters long.",
+    });
+  }
+
+  try {
+    const category = await prisma.Businesscategory.findUnique({
+      where: { id: categoryId },
+    });
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        msg: "Category not found.",
+      });
+    }
+
+    const updatedCategory = await prisma.Businesscategory.update({
+      where: { id: categoryId },
+      data: {
+        name: name.toLowerCase(),
+        description,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: "Business category updated successfully.",
+      category: updatedCategory,
+    });
+  } catch (error) {
+    console.error("Error updating business category:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not update business category.",
+    });
+  }
+};
+
+/* ---------------- DELETE BUSINESS CATEGORY ---------------- */
+const deleteBusinessCategory = async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      msg: "Access denied. Admin privileges required.",
+    });
+  }
+
+  const { categoryId } = req.params;
+
+  try {
+    const category = await prisma.Businesscategory.findUnique({
+      where: { id: categoryId },
+      include: {
+        _count: {
+          select: { businessProfiles: true },
+        },
+      },
+    });
+
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        msg: "Category not found.",
+      });
+    }
+
+    if (category._count.businessProfiles > 0) {
+      return res.status(400).json({
+        success: false,
+        msg: `Cannot delete category. It is being used by ${category._count.businessProfiles} business(es).`,
+      });
+    }
+
+    await prisma.Businesscategory.delete({
+      where: { id: categoryId },
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: "Business category deleted successfully.",
+    });
+  } catch (error) {
+    console.error("Error deleting business category:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not delete business category.",
     });
   }
 };
@@ -944,7 +1094,7 @@ const bookingList = async (req, res) => {
   const userId = req.user.id;
   const { bookingId } = req.query;
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20)); // Default 20, max 100
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10)); // Default 10, max 100
   const skip = (page - 1) * limit;
 
   const businessProfile = await prisma.BusinessProfile.findUnique({
@@ -1001,6 +1151,8 @@ const bookingList = async (req, res) => {
         date: true,
         bookingStatus: true,
         paymentStatus: true,
+        totalAmount: true,
+        cancellation: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -1048,6 +1200,8 @@ const bookingList = async (req, res) => {
       },
       bookingStatus: true,
       paymentStatus: true,
+      totalAmount: true,
+      createdAt: true,
       date: true,
       createdAt: true,
       updatedAt: true,
@@ -1531,6 +1685,8 @@ module.exports = {
   // BUSINESS CATEGORY
   getAllBusinessCategory,
   createBusinessCategory,
+  updateBusinessCategory,
+  deleteBusinessCategory,
 
   // DASHBOARD STATS
   getDashboardStats,

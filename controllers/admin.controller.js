@@ -14,6 +14,7 @@ const {
   userRestrictionEmailTemplate,
   userRestrictionLiftedEmailTemplate,
   businessApprovalEmailTemplate,
+  businessRejectionEmailTemplate,
   businessRestrictionEmailTemplate,
   businessRestrictionLiftedEmailTemplate,
   serviceRestrictionEmailTemplate,
@@ -22,38 +23,27 @@ const {
 
 /* --------------- USER MANAGEMENT --------------- */
 
-// Get all users with pagination and filters
+// Get all users with pagination (with backend filtering)
 const getAllUsers = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      role,
-      isRestricted,
-      search,
-      sortBy = "id",
-      sortOrder = "desc",
-    } = req.query;
+    const { page = 1, limit = 10, search, role } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    // Build where clause
+    // Build Where Clause
     const where = {};
-
-    if (role) where.role = role;
-    if (isRestricted !== undefined) {
-      where.isRestricted = isRestricted === "true";
+    if (role && role !== "all") {
+      where.role = role;
     }
     if (search) {
       where.OR = [
         { name: { contains: search, mode: "insensitive" } },
         { email: { contains: search, mode: "insensitive" } },
-        { mobile: { contains: search } },
+        { mobile: { contains: search, mode: "insensitive" } },
       ];
     }
 
-    // Get users with business profile if provider
     const [users, total] = await Promise.all([
       prisma.user.findMany({
         where,
@@ -71,16 +61,22 @@ const getAllUsers = async (req, res) => {
           restrictionReason: true,
           restrictionLiftedAt: true,
           createdAt: true,
+          addresses: true,
           businessProfile: {
             select: {
               id: true,
               businessName: true,
               isApproved: true,
               isRestricted: true,
+              category: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
-        orderBy: { [sortBy]: sortOrder },
+        orderBy: { createdAt: "desc" },
       }),
       prisma.user.count({ where }),
     ]);
@@ -134,7 +130,9 @@ const getUserById = async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     res.status(200).json({ success: true, data: user });
@@ -150,7 +148,9 @@ const restrictUser = async (req, res) => {
     const { userId } = req.params;
     const { error } = restrictReasonSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ success: false, message: error.details[0].message });
+      return res
+        .status(400)
+        .json({ success: false, message: error.details[0].message });
     }
 
     const { reason } = req.body;
@@ -159,7 +159,9 @@ const restrictUser = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     if (user.role === "admin") {
@@ -220,7 +222,9 @@ const liftUserRestriction = async (req, res) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     if (!user.isRestricted) {
@@ -266,40 +270,41 @@ const liftUserRestriction = async (req, res) => {
 
 /* --------------- BUSINESS MANAGEMENT --------------- */
 
-// Get all businesses with pagination and filters
+// Get all businesses with pagination (with backend filtering)
 const getAllBusinesses = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      isApproved,
-      isRestricted,
-      search,
-      categoryId,
-      sortBy = "id",
-      sortOrder = "desc",
-    } = req.query;
+    const { page = 1, limit = 10, search, status, category } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    // Build where clause
     const where = {};
 
-    if (isApproved !== undefined) {
-      where.isApproved = isApproved === "true";
+    // Status Filter
+    if (status === "pending") {
+      where.isApproved = false;
+      where.isRejected = false;
+    } else if (status === "approved") {
+      where.isApproved = true;
+    } else if (status === "rejected") {
+      where.isRejected = true;
     }
-    if (isRestricted !== undefined) {
-      where.isRestricted = isRestricted === "true";
+
+    // Category Filter (by name)
+    if (category && category !== "all") {
+      where.category = {
+        name: category,
+      };
     }
-    if (categoryId) {
-      where.businessCategoryId = categoryId;
-    }
+
+    // Search Filter
     if (search) {
       where.OR = [
         { businessName: { contains: search, mode: "insensitive" } },
+        { description: { contains: search, mode: "insensitive" } },
         { contactEmail: { contains: search, mode: "insensitive" } },
-        { phoneNumber: { contains: search } },
+        { user: { name: { contains: search, mode: "insensitive" } } },
+        { user: { email: { contains: search, mode: "insensitive" } } },
       ];
     }
 
@@ -331,7 +336,6 @@ const getAllBusinesses = async (req, res) => {
             },
           },
         },
-        orderBy: { [sortBy]: sortOrder },
       }),
       prisma.businessProfile.count({ where }),
     ]);
@@ -379,7 +383,7 @@ const getBusinessById = async (req, res) => {
         _count: {
           select: {
             services: true,
-            bookings: true,
+            Booking: true,
             slots: true,
           },
         },
@@ -426,7 +430,9 @@ const approveBusiness = async (req, res) => {
       where: { id: businessId },
       data: {
         isApproved: true,
+        isRejected: false, // Ensure rejected flag is cleared
         approvedAt: new Date(),
+        rejectedAt: null,
       },
       include: {
         user: {
@@ -460,13 +466,82 @@ const approveBusiness = async (req, res) => {
   }
 };
 
+// Reject business
+const rejectBusiness = async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const { error } = restrictReasonSchema.validate(req.body);
+    if (error) {
+      return res
+        .status(400)
+        .json({ success: false, message: error.details[0].message });
+    }
+
+    const { reason } = req.body;
+    const adminId = req.user.id;
+
+    const business = await prisma.businessProfile.findUnique({
+      where: { id: businessId },
+      include: { user: true },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Business not found" });
+    }
+
+    const updatedBusiness = await prisma.businessProfile.update({
+      where: { id: businessId },
+      data: {
+        isApproved: false,
+        isRejected: true,
+        rejectedAt: new Date(),
+        rejectionReason: reason,
+        approvedAt: null,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    // Send rejection email
+    await sendMail({
+      email: business.user.email,
+      subject: "Your Business Has Been Rejected - HSM",
+      template: businessRejectionEmailTemplate({
+        providerName: business.user.name,
+        businessName: business.businessName,
+        reason: reason,
+      }),
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Business rejected successfully",
+      data: updatedBusiness,
+    });
+  } catch (error) {
+    console.error("Error rejecting business:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 // Restrict business
 const restrictBusiness = async (req, res) => {
   try {
     const { businessId } = req.params;
     const { error } = restrictReasonSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ success: false, message: error.details[0].message });
+      return res
+        .status(400)
+        .json({ success: false, message: error.details[0].message });
     }
 
     const { reason } = req.body;
@@ -593,39 +668,38 @@ const liftBusinessRestriction = async (req, res) => {
 
 /* --------------- SERVICE MANAGEMENT --------------- */
 
-// Get all services with pagination and filters
+// Get all services with pagination (with backend filtering)
 const getAllServices = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      isRestricted,
-      businessId,
-      categoryId,
-      search,
-      sortBy = "id",
-      sortOrder = "desc",
-    } = req.query;
+    const { page = 1, limit = 10, search, category } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
 
-    // Build where clause
     const where = {};
 
-    if (isRestricted !== undefined) {
-      where.isRestricted = isRestricted === "true";
+    // Category Filter (by name)
+    if (category && category !== "all") {
+      where.category = {
+        name: category,
+      };
     }
-    if (businessId) {
-      where.businessProfileId = businessId;
-    }
-    if (categoryId) {
-      where.businessCategoryId = categoryId;
-    }
+
+    // Search Filter
     if (search) {
       where.OR = [
         { name: { contains: search, mode: "insensitive" } },
         { description: { contains: search, mode: "insensitive" } },
+        {
+          businessProfile: {
+            businessName: { contains: search, mode: "insensitive" },
+          },
+        },
+        {
+          businessProfile: {
+            user: { name: { contains: search, mode: "insensitive" } },
+          },
+        },
       ];
     }
 
@@ -659,11 +733,10 @@ const getAllServices = async (req, res) => {
           _count: {
             select: {
               bookings: true,
-              feedback: true,
             },
           },
         },
-        orderBy: { [sortBy]: sortOrder },
+        orderBy: { createdAt: "desc" },
       }),
       prisma.service.count({ where }),
     ]);
@@ -705,21 +778,19 @@ const getServiceById = async (req, res) => {
           },
         },
         category: true,
-        feedback: {
-          take: 10,
-          orderBy: { createdAt: "desc" },
-        },
+        feedback: true,
         _count: {
           select: {
             bookings: true,
-            feedback: true,
           },
         },
       },
     });
 
     if (!service) {
-      return res.status(404).json({ success: false, message: "Service not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
     }
 
     res.status(200).json({ success: true, data: service });
@@ -735,7 +806,9 @@ const restrictService = async (req, res) => {
     const { serviceId } = req.params;
     const { error } = restrictReasonSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ success: false, message: error.details[0].message });
+      return res
+        .status(400)
+        .json({ success: false, message: error.details[0].message });
     }
 
     const { reason } = req.body;
@@ -753,7 +826,9 @@ const restrictService = async (req, res) => {
     });
 
     if (!service) {
-      return res.status(404).json({ success: false, message: "Service not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
     }
 
     if (service.isRestricted) {
@@ -827,7 +902,9 @@ const liftServiceRestriction = async (req, res) => {
     });
 
     if (!service) {
-      return res.status(404).json({ success: false, message: "Service not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Service not found" });
     }
 
     if (!service.isRestricted) {
@@ -942,6 +1019,113 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
+// Get dashboard analytics for graphs
+const getDashboardAnalytics = async (req, res) => {
+  try {
+    // 1. Fetch data for processing
+    const [bookings, subscriptions, topBusinesses, topServices] =
+      await Promise.all([
+        prisma.booking.findMany({
+          select: { createdAt: true, totalAmount: true },
+          orderBy: { createdAt: "asc" },
+        }),
+        prisma.providerSubscription.findMany({
+          select: {
+            createdAt: true,
+            plan: { select: { price: true } },
+          },
+          orderBy: { createdAt: "asc" },
+        }),
+        prisma.businessProfile.findMany({
+          take: 5,
+          select: {
+            id: true,
+            businessName: true,
+            _count: {
+              select: { Booking: true },
+            },
+          },
+          orderBy: {
+            Booking: {
+              _count: "desc",
+            },
+          },
+        }),
+        prisma.service.findMany({
+          take: 5,
+          select: {
+            id: true,
+            name: true,
+            _count: {
+              select: { bookings: true },
+            },
+          },
+          orderBy: {
+            bookings: {
+              _count: "desc",
+            },
+          },
+        }),
+      ]);
+
+    // 2. Process Bookings (Daily & Monthly)
+    const bookingsByDay = {};
+    const bookingsByMonth = {};
+
+    bookings.forEach((booking) => {
+      const date = booking.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
+      const month = date.slice(0, 7); // YYYY-MM
+
+      // Daily
+      if (!bookingsByDay[date]) bookingsByDay[date] = 0;
+      bookingsByDay[date]++;
+
+      // Monthly
+      if (!bookingsByMonth[month]) bookingsByMonth[month] = 0;
+      bookingsByMonth[month]++;
+    });
+
+    // 3. Process Subscriptions (Payments/Revenue by Month)
+    const revenueByMonth = {};
+
+    subscriptions.forEach((sub) => {
+      const month = sub.createdAt.toISOString().slice(0, 7); // YYYY-MM
+      if (!revenueByMonth[month]) revenueByMonth[month] = 0;
+      revenueByMonth[month] += sub.plan.price;
+    });
+
+    // Format for Frontend
+    const formatData = (obj) =>
+      Object.entries(obj).map(([key, value]) => ({ name: key, value }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        bookings: {
+          daily: formatData(bookingsByDay),
+          monthly: formatData(bookingsByMonth),
+        },
+        revenue: {
+          monthly: formatData(revenueByMonth),
+        },
+        rankings: {
+          businesses: topBusinesses.map((b) => ({
+            name: b.businessName,
+            bookings: b._count.Booking,
+          })),
+          services: topServices.map((s) => ({
+            name: s.name,
+            bookings: s._count.bookings,
+          })),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard analytics:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
   // User Management
   getAllUsers,
@@ -953,6 +1137,7 @@ module.exports = {
   getAllBusinesses,
   getBusinessById,
   approveBusiness,
+  rejectBusiness,
   restrictBusiness,
   liftBusinessRestriction,
 
@@ -964,4 +1149,5 @@ module.exports = {
 
   // Dashboard
   getDashboardStats,
+  getDashboardAnalytics,
 };

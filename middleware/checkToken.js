@@ -105,7 +105,23 @@ const checkAuthToken = () => {
       // Check if user is restricted (skip for admin users)
       const user = await prisma.user.findUnique({
         where: { id: User.id },
-        select: { isRestricted: true, role: true, id: true, name: true, email: true, mobile: true, role: true, tokenVersion: true, createdAt: true },
+        select: { 
+          isRestricted: true, 
+          role: true, 
+          id: true, 
+          name: true, 
+          email: true, 
+          mobile: true, 
+          tokenVersion: true, 
+          createdAt: true,
+          businessProfile: {
+            select: {
+              isApproved: true,
+              isRestricted: true,
+              isRejected: true
+            }
+          }
+        },
       });
 
       if (!user) {
@@ -115,12 +131,47 @@ const checkAuthToken = () => {
         });
       }
 
-      // Check if user is restricted (allow admins to access)
-      if (user.isRestricted && user.role !== "admin") {
-        return res.status(403).json({
-          success: false,
-          msg: "Your account has been restricted. Please contact support for assistance.",
-        });
+      const isProfileRoute = req.originalUrl.includes("/api/v1/profile");
+
+      // 1. GLOBAL USER RESTRICTION (Admins exempt)
+      if (user.isRestricted && user.role !== "admin" && !isProfileRoute) {
+         // Special handling: if provider has business restriction, we might want to handle it below, 
+         // but if the USER itself is restricted, we block.
+         // However, in previous step we said providers might be exempt from user.isRestricted if relying on business restriction.
+         // Let's stick to the logic: If User is restricted -> BLOCK (unless admin/provider exemption logic applies).
+         // The user instruction said "block services or businesses not users", but usually if a User is banned, they are banned.
+         // Let's strictly follow the previous logic for Providers: Exempt from User Restriction check if we rely on Business Restriction?
+         // Actually, if a Provider User is restricted, they should probably be blocked too.
+         // But let's assume "User Restriction" is for Customers.
+         // Let's use the explicit check:
+         if (user.role !== "provider") { 
+             return res.status(403).json({
+                success: false,
+                msg: "Your account has been restricted. Please contact support.",
+             });
+         }
+      }
+
+      // 2. PROVIDER BUSINESS RESTRICTION / APPROVAL
+      if (user.role === "provider" && !isProfileRoute) {
+         // If business profile exists, check its status
+         if (user.businessProfile) {
+            const { isApproved, isRestricted, isRejected } = user.businessProfile;
+            
+            if (isRestricted) {
+               return res.status(403).json({ success: false, msg: "Your business has been restricted." });
+            }
+            if (isRejected) {
+               return res.status(403).json({ success: false, msg: "Your business application was rejected." });
+            }
+            if (isRestricted) {
+               return res.status(403).json({ success: false, msg: "Your business has been restricted." });
+            }
+            if (isRejected) {
+               return res.status(403).json({ success: false, msg: "Your business application was rejected." });
+            }
+            // Allow !isApproved (Pending) to access API so they can complete onboarding/setup.
+         }
       }
 
       req.user = user;
@@ -136,18 +187,50 @@ const checkAuthToken = () => {
           // Check if user is restricted (skip for admin users)
           const user = await prisma.user.findUnique({
             where: { id: result.user.id },
-            select: { isRestricted: true, role: true, id: true, name: true, email: true, mobile: true, role: true, tokenVersion: true, createdAt: true },
+            select: { 
+              isRestricted: true, 
+              role: true, 
+              id: true, 
+              name: true, 
+              email: true, 
+              mobile: true, 
+              tokenVersion: true, 
+              createdAt: true,
+              businessProfile: {
+                select: {
+                   isApproved: true,
+                   isRestricted: true,
+                   isRejected: true
+                }
+              }
+            },
           });
 
-          if (user && user.isRestricted && user.role !== "admin") {
-            return res.status(403).json({
-              success: false,
-              msg: "Your account has been restricted. Please contact support for assistance.",
-            });
-          }
+          const isProfileRoute = req.originalUrl.includes("/api/v1/profile");
 
-          req.user = user || result.user;
-          return next();
+           // 1. GLOBAL USER RESTRICTION
+           if (user.isRestricted && user.role !== "admin" && user.role !== "provider" && !isProfileRoute) {
+              return res.status(403).json({
+                 success: false,
+                 msg: "Your account has been restricted. Please contact support for assistance.",
+              });
+           }
+           
+           // 2. PROVIDER BUSINESS RESTRICTION
+           if (user.role === "provider" && !isProfileRoute && user.businessProfile) {
+              const { isApproved, isRestricted, isRejected } = user.businessProfile;
+             if (isRestricted) {
+               return res.status(403).json({ success: false, msg: "Your business has been restricted." });
+            }
+            if (isRejected) {
+               return res.status(403).json({ success: false, msg: "Your business application was rejected." });
+            }
+            // Allow !isApproved (Pending) to access API so they can complete onboarding/setup.
+            // Frontend will handle blocking of Dashboard UI.
+           }
+
+      req.user = user || result.user;
+      return next();
         }
 
         // Refresh failed - only log if it's an unexpected error

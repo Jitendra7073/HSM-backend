@@ -499,10 +499,79 @@ function serviceRestrictionLiftedEmailTemplate({ providerName, businessName, ser
   `;
 }
 
+/* ---------------- BUSINESS REJECTED EMAIL ---------------- */
+function businessRejectionEmailTemplate({ providerName, businessName, reason }) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Business Rejected</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+
+  <div style="max-width:720px; margin:0 auto; background-color:#ffffff;">
+
+    <!-- Logo -->
+    <div style="padding:32px 32px 24px;">
+      <img
+        src="${HSM_LOGO}"
+        alt="HSM Logo"
+        style="display:block; width:140px; height:auto; object-fit:contain;"
+      />
+    </div>
+
+    <!-- Content -->
+    <div style="padding:24px 32px 32px;">
+
+      <p style="margin:0 0 12px; font-size:14px;">
+        Hi <strong>${providerName}</strong>,
+      </p>
+
+      <p style="margin:0 0 16px; font-size:14px; line-height:1.6;">
+        We regret to inform you that your business <strong>${businessName}</strong>
+        has been rejected.
+      </p>
+
+      <!-- Alert Box -->
+      <div style="background-color:#fef2f2; border-left:4px solid #dc2626; padding:16px; margin:24px 0;">
+        <p style="margin:0 0 8px; font-weight:600; color:#7f1d1d; font-size:13px;">
+          ⚠️ Reason for Rejection
+        </p>
+        <p style="margin:0; font-size:13px; color:#7f1d1d; line-height:1.6;">
+          ${reason}
+        </p>
+      </div>
+
+      <p style="margin:24px 0 16px; font-size:14px; line-height:1.6;">
+        If you have corrected the issues mentioned above or want to appeal, please contact support.
+      </p>
+
+      <p style="margin:16px 0 0; font-size:13px; color:#4b5563;">
+        Regards,<br />
+        <strong>Home Service Management Team</strong>
+      </p>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+      © ${new Date().getFullYear()} HSM. All rights reserved.
+    </div>
+
+  </div>
+
+</body>
+</html>
+  `;
+}
+
 module.exports = {
   userRestrictionEmailTemplate,
   userRestrictionLiftedEmailTemplate,
   businessApprovalEmailTemplate,
+  businessRejectionEmailTemplate,
   businessRestrictionEmailTemplate,
   businessRestrictionLiftedEmailTemplate,
   serviceRestrictionEmailTemplate,

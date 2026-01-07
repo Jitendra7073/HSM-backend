@@ -12,7 +12,7 @@ const { storeNotification } = require("./notification.controller");
 /* ---------------- GET ALL PROVIDERS (WITH PAGINATION) ---------------- */
 const getAllProviders = async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20)); // Default 20, max 100
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10)); // Default 10, max 100
   const skip = (page - 1) * limit;
 
   try {
@@ -30,6 +30,7 @@ const getAllProviders = async (req, res) => {
         },
         businessProfile: {
           isActive: true,
+          isRestricted: false,
         },
       },
     });
@@ -48,6 +49,7 @@ const getAllProviders = async (req, res) => {
         },
         businessProfile: {
           isActive: true,
+          isRestricted: false,
         },
       },
       select: {
@@ -62,6 +64,7 @@ const getAllProviders = async (req, res) => {
             services: {
               where: {
                 isActive: true,
+                isRestricted: false,
               },
               select: {
                 id: true,
@@ -154,9 +157,13 @@ const getProviderById = async (req, res) => {
             phoneNumber: true,
             websiteURL: true,
             isActive: true,
+            isRestricted: true,
             socialLinks: true,
             services: {
-              where: { isActive: true },
+              where: {
+                isActive: true,
+                isRestricted: false,
+              },
               select: {
                 id: true,
                 name: true,
@@ -204,6 +211,12 @@ const getProviderById = async (req, res) => {
         .json({ success: false, msg: "Provider not found." });
     }
 
+    if (provider.businessProfile && provider.businessProfile.isRestricted) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Provider is currently unavailable." });
+    }
+
     return res.status(200).json({
       success: true,
       msg: "Provider fetched successfully.",
@@ -221,7 +234,7 @@ const getProviderById = async (req, res) => {
 const getCustomerBookings = async (req, res) => {
   const customerId = req.user.id;
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20)); // Default 20, max 100
+  const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10)); // Default 10, max 100
   const skip = (page - 1) * limit;
 
   try {
@@ -394,14 +407,14 @@ const cancelBooking = async (req, res) => {
   /* ---------- helper: parse slot time (12h → 24h) ---------- */
   const parseSlotTimeTo24H = (timeStr) => {
     if (!timeStr) return { hours: 0, minutes: 0 };
-    
+
     // Handle "10:30 AM", "10:30AM", "14:00"
     // Normalize string: remove extra spaces, uppercase
     const normalized = timeStr.toUpperCase().trim();
-    
+
     let timePart = normalized;
     let modifier = "";
-    
+
     if (normalized.includes("PM")) {
       modifier = "PM";
       timePart = normalized.replace("PM", "").trim();
@@ -409,9 +422,9 @@ const cancelBooking = async (req, res) => {
       modifier = "AM";
       timePart = normalized.replace("AM", "").trim();
     }
-    
+
     let [hours, minutes] = timePart.split(":").map(Number);
-    
+
     if (isNaN(hours)) hours = 0;
     if (isNaN(minutes)) minutes = 0;
 
@@ -470,33 +483,38 @@ const cancelBooking = async (req, res) => {
       serviceStart = new Date(bookingDate);
       // If booking.date was invalid or in incompatible format
       if (isNaN(serviceStart.getTime())) {
-          // Attempt to parse manually if it's YYYY-MM-DD or DD-MM-YYYY
-          // Assuming date is string. If it's stored as "YYYY-MM-DD" it should work.
-          // If stored as "06-01-2025" (DD-MM-YYYY)
-           const parts = booking.date.split(/[-/]/);
-           if (parts.length === 3) {
-               // Heuristic: if first part > 12 likely YYYY? or YYYY is usually 4 digits
-               if (parts[0].length === 4) {
-                   // YYYY-MM-DD
-                   serviceStart = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
-               } else {
-                   // Assume DD-MM-YYYY (or MM-DD-YYYY depending on locale, but DD-MM is more common in IN)
-                   // Try MM-DD-YYYY first? No, User is "EnactOn" (India likely -> DD-MM-YYYY)
-                   // But `new Date` prefers MM-DD-YYYY in US locale.
-                   // Let's safe convert to YYYY-MM-DD
-                   serviceStart = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`); 
-               }
-           }
+        // Attempt to parse manually if it's YYYY-MM-DD or DD-MM-YYYY
+        // Assuming date is string. If it's stored as "YYYY-MM-DD" it should work.
+        // If stored as "06-01-2025" (DD-MM-YYYY)
+        const parts = booking.date.split(/[-/]/);
+        if (parts.length === 3) {
+          // Heuristic: if first part > 12 likely YYYY? or YYYY is usually 4 digits
+          if (parts[0].length === 4) {
+            // YYYY-MM-DD
+            serviceStart = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
+          } else {
+            // Assume DD-MM-YYYY (or MM-DD-YYYY depending on locale, but DD-MM is more common in IN)
+            // Try MM-DD-YYYY first? No, User is "EnactOn" (India likely -> DD-MM-YYYY)
+            // But `new Date` prefers MM-DD-YYYY in US locale.
+            // Let's safe convert to YYYY-MM-DD
+            serviceStart = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+          }
+        }
       }
 
       if (isNaN(serviceStart.getTime())) {
         throw new Error("Invalid date");
       }
-      
+
       serviceStart.setHours(hours, minutes, 0, 0);
     } catch (e) {
-       console.error("Date parsing error for booking:", booking.id, booking.date, e);
-       return res.status(400).json({
+      console.error(
+        "Date parsing error for booking:",
+        booking.id,
+        booking.date,
+        e
+      );
+      return res.status(400).json({
         success: false,
         msg: "Invalid service start time format in booking.",
       });
@@ -763,11 +781,45 @@ const cancelBooking = async (req, res) => {
 /* ---------------- GET ALL SERVICES ---------------- */
 const getAllServices = async (req, res) => {
   try {
-    const services = await prisma.service.findMany();
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 10)); // Default 10
+    const skip = (page - 1) * limit;
+
+    const [services, total] = await Promise.all([
+      prisma.service.findMany({
+        where: {
+          isActive: true,
+          isRestricted: false,
+          businessProfile: {
+            isActive: true,
+            isRestricted: false,
+          },
+        },
+        take: limit,
+        skip,
+      }),
+      prisma.service.count({
+        where: {
+          isActive: true,
+          isRestricted: false,
+          businessProfile: {
+            isActive: true,
+            isRestricted: false,
+          },
+        },
+      }),
+    ]);
+
     return res.status(200).json({
       success: true,
       msg: "Services fetched successfully.",
       count: services.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
       services,
     });
   } catch (err) {

@@ -8,7 +8,7 @@ const mobile = Joi.string()
   .pattern(/^[0-9]{10}$/)
   .required();
 
-  /* ---------------- SIGN UP ---------------- */
+/* ---------------- SIGN UP ---------------- */
 const SignUpSchema = Joi.object({
   role: Joi.string().valid("customer", "provider").required(),
   name,

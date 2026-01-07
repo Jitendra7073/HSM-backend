@@ -20,6 +20,7 @@ const getUserProfile = async (req, res) => {
         role: true,
         createdAt: true,
         addresses: true, // include all addresses
+        businessProfile: true,
         providerSubscription: {
           select: {
             plan: {

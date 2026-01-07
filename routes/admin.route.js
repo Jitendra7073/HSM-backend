@@ -18,6 +18,7 @@ route.patch("/users/:userId/lift-restriction", AdminController.liftUserRestricti
 route.get("/businesses", AdminController.getAllBusinesses);
 route.get("/businesses/:businessId", AdminController.getBusinessById);
 route.patch("/businesses/:businessId/approve", AdminController.approveBusiness);
+route.patch("/businesses/:businessId/reject", AdminController.rejectBusiness);
 route.patch("/businesses/:businessId/restrict", AdminController.restrictBusiness);
 route.patch(
   "/businesses/:businessId/lift-restriction",
@@ -35,5 +36,6 @@ route.patch(
 
 /* ------------------ DASHBOARD STATS ROUTE ------------------ */
 route.get("/dashboard/stats", AdminController.getDashboardStats);
+route.get("/dashboard/analytics", AdminController.getDashboardAnalytics);
 
 module.exports = route;

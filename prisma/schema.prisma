@@ -79,6 +79,9 @@ model BusinessProfile {
   socialLinks         Json?
   approvedAt          DateTime?
   isApproved          Boolean          @default(false)
+  isRejected          Boolean          @default(false)
+  rejectedAt          DateTime?
+  rejectionReason     String?
   isRestricted        Boolean          @default(false)
   restrictedAt        DateTime?
   restrictedBy        String?
