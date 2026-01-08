@@ -156,6 +156,7 @@ model Service {
   restrictedBy           String?
   restrictionLiftedAt    DateTime?
   restrictionReason      String?
+  restrictionRequestMessage String?
   bookings               Booking[]
   carts                  Cart[]
   feedback               Feedback?

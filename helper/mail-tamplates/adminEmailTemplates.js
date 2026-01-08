@@ -61,7 +61,7 @@ function userRestrictionEmailTemplate({ userName, reason }) {
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -127,7 +127,7 @@ function userRestrictionLiftedEmailTemplate({ userName }) {
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -217,7 +217,7 @@ function businessApprovalEmailTemplate({ providerName, businessName }) {
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -228,7 +228,11 @@ function businessApprovalEmailTemplate({ providerName, businessName }) {
 }
 
 /* ---------------- BUSINESS RESTRICTED EMAIL ---------------- */
-function businessRestrictionEmailTemplate({ providerName, businessName, reason }) {
+function businessRestrictionEmailTemplate({
+  providerName,
+  businessName,
+  reason,
+}) {
   return `
 <!DOCTYPE html>
 <html>
@@ -286,7 +290,7 @@ function businessRestrictionEmailTemplate({ providerName, businessName, reason }
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -297,7 +301,10 @@ function businessRestrictionEmailTemplate({ providerName, businessName, reason }
 }
 
 /* ---------------- BUSINESS RESTRICTION LIFTED EMAIL ---------------- */
-function businessRestrictionLiftedEmailTemplate({ providerName, businessName }) {
+function businessRestrictionLiftedEmailTemplate({
+  providerName,
+  businessName,
+}) {
   return `
 <!DOCTYPE html>
 <html>
@@ -352,7 +359,7 @@ function businessRestrictionLiftedEmailTemplate({ providerName, businessName }) 
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -363,7 +370,12 @@ function businessRestrictionLiftedEmailTemplate({ providerName, businessName }) 
 }
 
 /* ---------------- SERVICE RESTRICTED EMAIL ---------------- */
-function serviceRestrictionEmailTemplate({ providerName, businessName, serviceName, reason }) {
+function serviceRestrictionEmailTemplate({
+  providerName,
+  businessName,
+  serviceName,
+  reason,
+}) {
   return `
 <!DOCTYPE html>
 <html>
@@ -422,7 +434,7 @@ function serviceRestrictionEmailTemplate({ providerName, businessName, serviceNa
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -433,7 +445,11 @@ function serviceRestrictionEmailTemplate({ providerName, businessName, serviceNa
 }
 
 /* ---------------- SERVICE RESTRICTION LIFTED EMAIL ---------------- */
-function serviceRestrictionLiftedEmailTemplate({ providerName, businessName, serviceName }) {
+function serviceRestrictionLiftedEmailTemplate({
+  providerName,
+  businessName,
+  serviceName,
+}) {
   return `
 <!DOCTYPE html>
 <html>
@@ -489,7 +505,7 @@ function serviceRestrictionLiftedEmailTemplate({ providerName, businessName, ser
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>
@@ -500,7 +516,11 @@ function serviceRestrictionLiftedEmailTemplate({ providerName, businessName, ser
 }
 
 /* ---------------- BUSINESS REJECTED EMAIL ---------------- */
-function businessRejectionEmailTemplate({ providerName, businessName, reason }) {
+function businessRejectionEmailTemplate({
+  providerName,
+  businessName,
+  reason,
+}) {
   return `
 <!DOCTYPE html>
 <html>
@@ -557,7 +577,7 @@ function businessRejectionEmailTemplate({ providerName, businessName, reason }) 
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} HSM. All rights reserved.
+      © ${new Date().getFullYear()} Fixora. All rights reserved.
     </div>
 
   </div>

@@ -60,5 +60,9 @@ route.get("/subscription-plans", ProviderController.getAllSubscriptionPlans);
 
 /* ---------------- REQUEST UNRESTRICT ---------------- */
 route.post("/request-unrestrict", ProviderController.requestUnrestrict);
+route.post(
+  "/request-service-unrestrict",
+  ProviderController.requestServiceUnrestrict
+);
 
 module.exports = route;

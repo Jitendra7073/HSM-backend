@@ -9,7 +9,7 @@ function welcomeUserTamplate(userName) {
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Welcome to HSM</title>
+  <title>Welcome to Fixora</title>
 </head>
 
 <body
@@ -44,7 +44,7 @@ function welcomeUserTamplate(userName) {
     </p>
 
     <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6;">
-      Welcome to <strong>HSM</strong>. Your account has been successfully created.
+      Welcome to <strong>Fixora</strong>. Your account has been successfully created.
       You can now book verified professionals for home services such as repairs,
       maintenance, and cleaning.
     </p>
@@ -78,10 +78,10 @@ function welcomeUserTamplate(userName) {
 
     <p style="margin:0; font-size:13px;">
       <a
-        href="mailto:hsm@support.com"
+        href="mailto:Fixora@support.com"
         style="color:#2563eb; text-decoration:none;"
       >
-        hsm@support.com
+        Fixora@support.com
       </a>
     </p>
 
@@ -166,7 +166,7 @@ const forgotPasswordTamplate = (name, token) => {
 
   <!-- Footer -->
   <footer style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-    © ${new Date().getFullYear()} HSM. All rights reserved.
+    © ${new Date().getFullYear()} Fixora. All rights reserved.
   </footer>
 
 </body>
@@ -322,8 +322,8 @@ function bookingSuccessEmailTemplate({
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:hsm@supportEmail.com" style="color:#2563eb; text-decoration:none;">
-                  hsm@supportEmail.com
+                <a href="mailto:Fixora@supportEmail.com" style="color:#2563eb; text-decoration:none;">
+                  Fixora@supportEmail.com
                 </a>
               </p>
 
@@ -453,8 +453,8 @@ function bookingFailedEmailTemplate({ userName, services, businessName }) {
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:hsm@supportEmail.com" style="color:#2563eb; text-decoration:none;">
-                  hsm@supportEmail.com
+                <a href="mailto:Fixora@supportEmail.com" style="color:#2563eb; text-decoration:none;">
+                  Fixora@supportEmail.com
                 </a>
               </p>
 
@@ -602,9 +602,9 @@ function providerSubscriptionSuccessEmailTemplate({
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:support@hsmgmail.com"
+                <a href="mailto:Fixora@support.com"
                    style="color:#2563eb; text-decoration:none;">
-                  support@hsmgmail.com
+                  Fixora@support.com
                 </a>
               </p>
 
@@ -642,7 +642,7 @@ function providerTrialStartedEmailTemplate({
     month: "short",
     year: "numeric",
   });
-  
+
   return `
 <!DOCTYPE html>
 <html>
@@ -741,9 +741,9 @@ function providerTrialStartedEmailTemplate({
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:support@hsmgmail.com"
+                <a href="mailto:Fixora@support.com"
                    style="color:#2563eb; text-decoration:none;">
-                  support@hsmgmail.com
+                  Fixora@support.com
                 </a>
               </p>
 

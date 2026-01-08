@@ -1669,6 +1669,86 @@ const requestUnrestrict = async (req, res) => {
   }
 };
 
+/* ---------------- REQUEST SERVICE UNRESTRICT ---------------- */
+const requestServiceUnrestrict = async (req, res) => {
+  const userId = req.user.id;
+  const { serviceId, message } = req.body;
+
+  try {
+    if (!serviceId || !message) {
+      return res
+        .status(400)
+        .json({ success: false, msg: "ServiceId and Message are required" });
+    }
+
+    // Find the business profile to ensure ownership
+    const business = await prisma.BusinessProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        msg: "Business profile not found.",
+      });
+    }
+
+    // Find the service and check ownership
+    const service = await prisma.Service.findFirst({
+      where: {
+        id: serviceId,
+        businessProfileId: business.id,
+      },
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        msg: "Service not found or unauthorized.",
+      });
+    }
+
+    // Update Service with the request message
+    await prisma.Service.update({
+      where: { id: serviceId },
+      data: {
+        restrictionRequestMessage: message,
+      },
+    });
+
+    // Find all admins to notify
+    const admins = await prisma.user.findMany({
+      where: { role: "admin" },
+      select: { id: true },
+    });
+
+    if (admins.length > 0) {
+      const notifications = admins.map((admin) => ({
+        title: "Service Restriction Removal Request",
+        message: `Provider ${req.user.name} has requested to lift the restriction on service "${service.name}". Message: "${message}"`,
+        receiverId: admin.id,
+        senderId: userId,
+        read: false,
+      }));
+
+      await prisma.notification.createMany({
+        data: notifications,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      msg: "Request submitted successfully. Admin has been notified.",
+    });
+  } catch (error) {
+    console.error("Request Service Unrestrict Error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not submit request.",
+    });
+  }
+};
+
 module.exports = {
   // BUSINESS
   createBusiness,
@@ -1714,4 +1794,5 @@ module.exports = {
 
   // Request Unrestrict
   requestUnrestrict,
+  requestServiceUnrestrict,
 };

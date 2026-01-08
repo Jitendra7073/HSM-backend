@@ -196,7 +196,7 @@ const restrictUser = async (req, res) => {
     // Send notification email
     await sendMail({
       email: user.email,
-      subject: "Your Account Has Been Restricted - HSM",
+      subject: "Your Account Has Been Restricted - Fixora",
       template: userRestrictionEmailTemplate({
         userName: user.name,
         reason: reason,
@@ -251,7 +251,7 @@ const liftUserRestriction = async (req, res) => {
     // Send notification email
     await sendMail({
       email: user.email,
-      subject: "Your Account Restriction Has Been Lifted - HSM",
+      subject: "Your Account Restriction Has Been Lifted - Fixora",
       template: userRestrictionLiftedEmailTemplate({
         userName: user.name,
       }),
@@ -448,7 +448,7 @@ const approveBusiness = async (req, res) => {
     // Send approval email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Has Been Approved - HSM",
+      subject: "Your Business Has Been Approved - Fixora",
       template: businessApprovalEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -514,7 +514,7 @@ const rejectBusiness = async (req, res) => {
     // Send rejection email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Has Been Rejected - HSM",
+      subject: "Your Business Has Been Rejected - Fixora",
       template: businessRejectionEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -586,7 +586,7 @@ const restrictBusiness = async (req, res) => {
     // Send notification email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Has Been Restricted - HSM",
+      subject: "Your Business Has Been Restricted - Fixora",
       template: businessRestrictionEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -633,6 +633,7 @@ const liftBusinessRestriction = async (req, res) => {
         isRestricted: false,
         restrictionLiftedAt: new Date(),
         restrictionReason: null,
+        restrictionRequestMessage: null,
       },
       include: {
         user: {
@@ -648,7 +649,7 @@ const liftBusinessRestriction = async (req, res) => {
     // Send notification email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Restriction Has Been Lifted - HSM",
+      subject: "Your Business Restriction Has Been Lifted - Fixora",
       template: businessRestrictionLiftedEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -865,7 +866,7 @@ const restrictService = async (req, res) => {
     // Send notification email
     await sendMail({
       email: service.businessProfile.user.email,
-      subject: "Your Service Has Been Restricted - HSM",
+      subject: "Your Service Has Been Restricted - Fixora",
       template: serviceRestrictionEmailTemplate({
         providerName: service.businessProfile.user.name,
         businessName: service.businessProfile.businessName,
@@ -919,6 +920,7 @@ const liftServiceRestriction = async (req, res) => {
         isRestricted: false,
         restrictionLiftedAt: new Date(),
         restrictionReason: null,
+        restrictionRequestMessage: null,
       },
       include: {
         businessProfile: {
@@ -940,7 +942,7 @@ const liftServiceRestriction = async (req, res) => {
     // Send notification email
     await sendMail({
       email: service.businessProfile.user.email,
-      subject: "Your Service Restriction Has Been Lifted - HSM",
+      subject: "Your Service Restriction Has Been Lifted - Fixora",
       template: serviceRestrictionLiftedEmailTemplate({
         providerName: service.businessProfile.user.name,
         businessName: service.businessProfile.businessName,
