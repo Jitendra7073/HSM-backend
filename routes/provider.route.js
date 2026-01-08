@@ -33,7 +33,10 @@ route.delete("/slot/:slotId", ProviderController.deleteSlot);
 route.get("/booking", ProviderController.bookingList);
 route.patch("/booking/:bookingId", ProviderController.updateBooking);
 
-route.get("/booking/cancellations", ProviderController.GetAllCancellationBookings);
+route.get(
+  "/booking/cancellations",
+  ProviderController.GetAllCancellationBookings
+);
 
 /* ---------------- BUSINESS CATEGORY ROUTE ---------------- */
 route
@@ -54,5 +57,8 @@ route.get("/service-feedback", ProviderController.getAllFeedbacks);
 
 /* ----------------- SUBSCTION DATA ----------------- */
 route.get("/subscription-plans", ProviderController.getAllSubscriptionPlans);
+
+/* ---------------- REQUEST UNRESTRICT ---------------- */
+route.post("/request-unrestrict", ProviderController.requestUnrestrict);
 
 module.exports = route;

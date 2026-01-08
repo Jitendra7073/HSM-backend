@@ -84,47 +84,30 @@ const createBusiness = async (req, res) => {
 
     // ---------------- NOTIFY ADMINS ----------------
     try {
-      // 1. Find all admins
       const admins = await prisma.user.findMany({
         where: { role: "admin" },
         select: { id: true },
       });
 
       if (admins.length > 0) {
-        const adminIds = admins.map((a) => a.id);
+        const notifications = admins.map((admin) => ({
+          title: "New Business Registration",
+          message: `New business "${newBusiness.businessName}" has registered and is pending approval.`,
+          receiverId: admin.id,
+          senderId: userId,
+          read: false,
+          // You might want to add meta data if schema supports it, but currently message is string.
+        }));
 
-        // 2. Prepare Notification Payload
-        const title = "New Business Registration";
-        const body = `New business "${newBusiness.businessName}" has registered and is pending approval.`;
-
-        // 3. Store Notification for each admin
-        // Note: Ideally bulk create, but storeNotification is single. Loops are okay for small admin count.
-        // For scalability, we might want a bulkStoreNotification in future.
-        for (const adminId of adminIds) {
-          await storeNotification(title, body, adminId, userId);
-        }
-
-        // 4. Send Push Notification to Admins
-        const adminTokens = await prisma.FCMToken.findMany({
-          where: {
-            userId: { in: adminIds },
-            isActive: true,
-          },
-          select: { token: true },
+        await prisma.notification.createMany({
+          data: notifications,
         });
 
-        if (adminTokens.length > 0) {
-          const tokens = adminTokens.map((t) => t.token);
-          await NotificationService.sendNotification(tokens, title, body, {
-            type: "BUSINESS_APPROVAL",
-            businessId: newBusiness.id,
-            click_action: "ADMIN_BUSINESS_LIST", // Example action
-          });
-        }
+        // Optional: Keep existing Push Notification logic if valid, or remove if simpler is better.
+        // For now, let's stick to DB notification which feeds the Admin Panel UI.
       }
     } catch (notifyError) {
       console.error("Failed to notify admins about new business:", notifyError);
-      // Suppress error so business creation doesn't fail
     }
 
     return res.status(201).json({
@@ -280,6 +263,10 @@ const getAllBusinessCategory = async (req, res) => {
         const activeProvidersCount = await prisma.user.count({
           where: {
             businessProfile: {
+              isRestricted: false,
+              isActive: true,
+              isApproved: true,
+              isRejected: false,
               businessCategoryId: category.id,
             },
             providerSubscription: {
@@ -1490,7 +1477,7 @@ const getDashboardStats = async (req, res) => {
       totalEarnings,
       monthlyAnalysis,
       serviceBookingStats,
-      user,
+      user: { ...user, businessProfile: business },
     });
   } catch (err) {
     return res.status(500).json({
@@ -1542,35 +1529,6 @@ const getAllFeedbacks = async (req, res) => {
     });
   }
 };
-
-// const updateServiceFeedbackStatus = async (req, res) => {
-//   const { feedbackId } = req.params;
-
-//   if (!feedbackId) {
-//     return res.status(400).json({ msg: "Feedback ID is required" });
-//   }
-
-//   try {
-//     const feedback = await prisma.feedback.findUnique({
-//       where: { id: feedbackId },
-//     });
-
-//     if (!feedback) {
-//       return res.status(404).json({ msg: "Feedback not found" });
-//     }
-
-//     await prisma.feedback.update({
-//       where: { id: feedbackId },
-//       data: { approved: true },
-//     });
-
-//     return res
-//       .status(200)
-//       .json({ msg: "Feedback status updated successfully" });
-//   } catch (error) {
-//     return res.status(500).json({ msg: "Failed to update feedback status" });
-//   }
-// };
 
 /* ---------------- SERVICE FEEDBACK ---------------- */
 const getAllSubscriptionPlans = async (req, res) => {
@@ -1658,6 +1616,59 @@ const GetAllCancellationBookings = async (req, res) => {
   }
 };
 
+/* ---------------- REQUEST UNRESTRICT ---------------- */
+const requestUnrestrict = async (req, res) => {
+  const userId = req.user.id;
+  const { message } = req.body;
+
+  try {
+    if (!message) {
+      return res
+        .status(400)
+        .json({ success: false, msg: "Message is required" });
+    }
+
+    // Update Business Profile with the request message
+    await prisma.BusinessProfile.update({
+      where: { userId },
+      data: {
+        restrictionRequestMessage: message,
+      },
+    });
+
+    // Find all admins to notify
+    const admins = await prisma.user.findMany({
+      where: { role: "admin" },
+      select: { id: true },
+    });
+
+    if (admins.length > 0) {
+      const notifications = admins.map((admin) => ({
+        title: "Restriction Removal Request",
+        message: `Provider ${req.user.name} has requested to lift the restriction on their business. Message: "${message}"`,
+        receiverId: admin.id,
+        senderId: userId,
+        read: false,
+      }));
+
+      await prisma.notification.createMany({
+        data: notifications,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      msg: "Request submitted successfully. Admin has been notified.",
+    });
+  } catch (error) {
+    console.error("Request Unrestrict Error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not submit request.",
+    });
+  }
+};
+
 module.exports = {
   // BUSINESS
   createBusiness,
@@ -1700,4 +1711,7 @@ module.exports = {
 
   // Get all cancl Bookings
   GetAllCancellationBookings,
+
+  // Request Unrestrict
+  requestUnrestrict,
 };

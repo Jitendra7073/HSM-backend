@@ -976,7 +976,7 @@ const getDashboardStats = async (req, res) => {
       restrictedServices,
       totalBookings,
     ] = await Promise.all([
-      prisma.user.count(),
+      prisma.user.count({ where: { role: { not: "admin" } } }),
       prisma.user.count({ where: { role: "customer" } }),
       prisma.user.count({ where: { role: "provider" } }),
       prisma.user.count({ where: { isRestricted: true } }),

@@ -31,6 +31,8 @@ const getAllProviders = async (req, res) => {
         businessProfile: {
           isActive: true,
           isRestricted: false,
+          isApproved: true,
+          isRejected: false,
         },
       },
     });
@@ -50,6 +52,8 @@ const getAllProviders = async (req, res) => {
         businessProfile: {
           isActive: true,
           isRestricted: false,
+          isApproved: true,
+          isRejected: false,
         },
       },
       select: {
@@ -158,6 +162,8 @@ const getProviderById = async (req, res) => {
             websiteURL: true,
             isActive: true,
             isRestricted: true,
+            isApproved: true,
+            isRejected: true,
             socialLinks: true,
             services: {
               where: {
@@ -211,7 +217,12 @@ const getProviderById = async (req, res) => {
         .json({ success: false, msg: "Provider not found." });
     }
 
-    if (provider.businessProfile && provider.businessProfile.isRestricted) {
+    if (
+      provider.businessProfile &&
+      (provider.businessProfile.isRestricted ||
+        !provider.businessProfile.isApproved ||
+        provider.businessProfile.isRejected)
+    ) {
       return res
         .status(404)
         .json({ success: false, msg: "Provider is currently unavailable." });
@@ -793,6 +804,8 @@ const getAllServices = async (req, res) => {
           businessProfile: {
             isActive: true,
             isRestricted: false,
+            isApproved: true,
+            isRejected: false,
           },
         },
         take: limit,
