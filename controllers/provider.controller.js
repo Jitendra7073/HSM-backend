@@ -1418,10 +1418,31 @@ const getDashboardStats = async (req, res) => {
 
     const totalCustomers = new Set(allBookings.map((b) => b.userId)).size;
 
-    const totalEarnings = allBookings.reduce(
-      (sum, b) => sum + (b.totalAmount || 0),
-      0
+    // Calculate Earnings based on status
+    const earningsBreakdown = allBookings.reduce(
+      (acc, b) => {
+        const amount = b.totalAmount || 0;
+        const status = b.bookingStatus.toLowerCase();
+
+        if (status === "completed") {
+          acc.realized += amount;
+          acc.total += amount;
+        } else if (
+          status === "confirmed" ||
+          status === "pending" ||
+          status === "pending_payment"
+        ) {
+          acc.potential += amount;
+          acc.total += amount;
+        } else if (status === "cancelled" || status === "cancel_requested") {
+          acc.lost += amount;
+        }
+        return acc;
+      },
+      { realized: 0, potential: 0, lost: 0, total: 0 }
     );
+
+    const totalEarnings = earningsBreakdown.total;
 
     const monthlyMap = {};
 
@@ -1431,19 +1452,27 @@ const getDashboardStats = async (req, res) => {
       const month = date.toLocaleString("default", { month: "short" });
       const year = date.getFullYear();
       const sortKey = year * 12 + monthIndex;
+      const amount = booking.totalAmount || 0;
+      const status = booking.bookingStatus.toLowerCase();
 
       if (!monthlyMap[sortKey]) {
         monthlyMap[sortKey] = {
           month,
           year,
           bookings: 0,
-          earnings: 0,
+          earnings: 0, // Realized + Potential
+          lostEarnings: 0, // Cancelled
           sortKey,
         };
       }
 
       monthlyMap[sortKey].bookings += 1;
-      monthlyMap[sortKey].earnings += booking.totalAmount || 0;
+
+      if (status === "cancelled" || status === "cancel_requested") {
+        monthlyMap[sortKey].lostEarnings += amount;
+      } else {
+        monthlyMap[sortKey].earnings += amount;
+      }
     });
 
     const monthlyAnalysis = Object.values(monthlyMap)
@@ -1472,12 +1501,25 @@ const getDashboardStats = async (req, res) => {
     return res.status(200).json({
       success: true,
       msg: "Dashboard stats fetched successfully.",
+      user: { ...user, businessProfile: business },
+      stats: {
+        bookings: bookingsData,
+        customers: totalCustomers,
+        earnings: {
+          total: totalEarnings,
+          realized: earningsBreakdown.realized,
+          potential: earningsBreakdown.potential,
+          lost: earningsBreakdown.lost,
+        },
+        monthlyAnalysis,
+        servicePerformance: serviceBookingStats,
+      },
+      // Keep old structure for backward compatibility if needed, using new values
       bookings: bookingsData,
       totalCustomers,
-      totalEarnings,
+      totalEarnings, // This is now (Realized + Potential)
       monthlyAnalysis,
       serviceBookingStats,
-      user: { ...user, businessProfile: business },
     });
   } catch (err) {
     return res.status(500).json({

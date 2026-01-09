@@ -1028,7 +1028,11 @@ const getDashboardAnalytics = async (req, res) => {
     const [bookings, subscriptions, topBusinesses, topServices] =
       await Promise.all([
         prisma.booking.findMany({
-          select: { createdAt: true, totalAmount: true },
+          select: {
+            createdAt: true,
+            totalAmount: true,
+            bookingStatus: true,
+          },
           orderBy: { createdAt: "asc" },
         }),
         prisma.providerSubscription.findMany({
@@ -1071,20 +1075,48 @@ const getDashboardAnalytics = async (req, res) => {
       ]);
 
     // 2. Process Bookings (Daily & Monthly)
-    const bookingsByDay = {};
-    const bookingsByMonth = {};
+    const bookingsByDay = {}; // Total Count
+    const bookingsByMonth = {}; // Total Count
+    const cancelledBookingsByMonth = {}; // Cancelled Count
+    const activeBookingsByMonth = {}; // Active Count
+
+    const gmvByMonth = {}; // Active Value
+    const lostGmvByMonth = {}; // Lost Value
 
     bookings.forEach((booking) => {
       const date = booking.createdAt.toISOString().split("T")[0]; // YYYY-MM-DD
       const month = date.slice(0, 7); // YYYY-MM
+      const status = booking.bookingStatus.toLowerCase();
+      const amount = booking.totalAmount || 0;
+      const isCancelled =
+        status === "cancelled" || status === "cancel_requested";
 
       // Daily
       if (!bookingsByDay[date]) bookingsByDay[date] = 0;
       bookingsByDay[date]++;
 
-      // Monthly
+      // Monthly Counts
       if (!bookingsByMonth[month]) bookingsByMonth[month] = 0;
       bookingsByMonth[month]++;
+
+      if (!cancelledBookingsByMonth[month]) cancelledBookingsByMonth[month] = 0;
+      if (!activeBookingsByMonth[month]) activeBookingsByMonth[month] = 0;
+
+      if (isCancelled) {
+        cancelledBookingsByMonth[month]++;
+      } else {
+        activeBookingsByMonth[month]++;
+      }
+
+      // Monthly GMV
+      if (!gmvByMonth[month]) gmvByMonth[month] = 0;
+      if (!lostGmvByMonth[month]) lostGmvByMonth[month] = 0;
+
+      if (isCancelled) {
+        lostGmvByMonth[month] += amount;
+      } else {
+        gmvByMonth[month] += amount;
+      }
     });
 
     // 3. Process Subscriptions (Payments/Revenue by Month)
@@ -1106,6 +1138,12 @@ const getDashboardAnalytics = async (req, res) => {
         bookings: {
           daily: formatData(bookingsByDay),
           monthly: formatData(bookingsByMonth),
+          activeMonthly: formatData(activeBookingsByMonth),
+          cancelledMonthly: formatData(cancelledBookingsByMonth),
+        },
+        gmv: {
+          realized: formatData(gmvByMonth),
+          lost: formatData(lostGmvByMonth),
         },
         revenue: {
           monthly: formatData(revenueByMonth),
