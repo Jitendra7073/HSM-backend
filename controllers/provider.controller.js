@@ -1125,6 +1125,7 @@ const bookingList = async (req, res) => {
             id: true,
             name: true,
             category: true,
+            description: true,
             price: true,
             durationInMinutes: true,
           },
