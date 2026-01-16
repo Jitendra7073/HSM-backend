@@ -68,33 +68,33 @@ model RefreshToken {
 /// *
 /// * ---------------- BUSINESS PROFILE MODEL ----------------
 model BusinessProfile {
-  id                     String                   @id @default(uuid())
-  userId                 String                   @unique
-  businessName           String
-  businessCategoryId     String
-  contactEmail           String
-  phoneNumber            String
-  websiteURL             String?
-  socialLinks            Json?
-  isActive               Boolean                  @default(true)
-  approvedAt             DateTime?
-  isApproved             Boolean                  @default(false)
-  isRejected             Boolean                  @default(false)
-  isRestricted           Boolean                  @default(false)
-  rejectedAt             DateTime?
-  rejectionReason        String?
-  restrictedAt           DateTime?
-  restrictedBy           String?
-  restrictionLiftedAt    DateTime?
-  restrictionReason      String?
+  id                        String                   @id @default(uuid())
+  userId                    String                   @unique
+  businessName              String
+  businessCategoryId        String
+  contactEmail              String
+  phoneNumber               String
+  websiteURL                String?
+  socialLinks               Json?
+  isActive                  Boolean                  @default(true)
+  approvedAt                DateTime?
+  isApproved                Boolean                  @default(false)
+  isRejected                Boolean                  @default(false)
+  isRestricted              Boolean                  @default(false)
+  rejectedAt                DateTime?
+  rejectionReason           String?
+  restrictedAt              DateTime?
+  restrictedBy              String?
+  restrictionLiftedAt       DateTime?
+  restrictionReason         String?
   restrictionRequestMessage String?
-  Booking                Booking[]
-  category               Businesscategory         @relation(fields: [businessCategoryId], references: [id])
-  user                   User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  carts                  Cart[]
-  RestrictionLiftRequest RestrictionLiftRequest[]
-  services               Service[]
-  slots                  Slot[]
+  Booking                   Booking[]
+  category                  Businesscategory         @relation(fields: [businessCategoryId], references: [id])
+  user                      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  carts                     Cart[]
+  RestrictionLiftRequest    RestrictionLiftRequest[]
+  services                  Service[]
+  slots                     Slot[]
 
   @@index([businessName, contactEmail])
 }
@@ -135,34 +135,34 @@ model Address {
 /// *
 /// * ---------------- SERVICE MODEL ----------------
 model Service {
-  id                     String                   @id @default(cuid())
-  name                   String
-  description            String?
-  durationInMinutes      Int
-  price                  Int
-  totalBookingAllow      Int
-  currency               String                   @default("INR")
-  isActive               Boolean                  @default(true)
-  coverImage             String?
-  images                 String[]
-  averageRating          Float?                   @default(0)
-  reviewCount            Int                      @default(0)
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
-  businessProfileId      String
-  businessCategoryId     String
-  isRestricted           Boolean                  @default(false)
-  restrictedAt           DateTime?
-  restrictedBy           String?
-  restrictionLiftedAt    DateTime?
-  restrictionReason      String?
+  id                        String                   @id @default(cuid())
+  name                      String
+  description               String?
+  durationInMinutes         Int
+  price                     Int
+  totalBookingAllow         Int
+  currency                  String                   @default("INR")
+  isActive                  Boolean                  @default(true)
+  coverImage                String?
+  images                    String[]
+  averageRating             Float?                   @default(0)
+  reviewCount               Int                      @default(0)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  businessProfileId         String
+  businessCategoryId        String
+  isRestricted              Boolean                  @default(false)
+  restrictedAt              DateTime?
+  restrictedBy              String?
+  restrictionLiftedAt       DateTime?
+  restrictionReason         String?
   restrictionRequestMessage String?
-  bookings               Booking[]
-  carts                  Cart[]
-  feedback               Feedback?
-  RestrictionLiftRequest RestrictionLiftRequest[]
-  category               Businesscategory         @relation(fields: [businessCategoryId], references: [id])
-  businessProfile        BusinessProfile          @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  bookings                  Booking[]
+  carts                     Cart[]
+  feedback                  Feedback[]
+  RestrictionLiftRequest    RestrictionLiftRequest[]
+  category                  Businesscategory         @relation(fields: [businessCategoryId], references: [id])
+  businessProfile           BusinessProfile          @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
 }
 
 /// *
@@ -200,7 +200,7 @@ model Booking {
   slot               Slot?           @relation(fields: [slotId], references: [id])
   user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   cancellation       Cancellation?
-  feedback           Feedback?
+  feedback           Feedback[]
 
   @@index([userId])
   @@index([businessProfileId])
