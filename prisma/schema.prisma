@@ -332,18 +332,28 @@ model ProviderSubscriptionPlan {
 /// *
 /// * ---------------- PROVIDER SUBSCRIPTION ----------------
 model ProviderSubscription {
-  id                   String                   @id @default(uuid())
-  userId               String                   @unique
-  planId               String
-  stripeCustomerId     String
-  stripeSubscriptionId String                   @unique
-  status               String
-  currentPeriodStart   DateTime
-  currentPeriodEnd     DateTime
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  plan                 ProviderSubscriptionPlan @relation(fields: [planId], references: [id])
-  user                 User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+
+  userId String @unique
+  planId String
+
+  stripeCustomerId     String @unique
+  stripeSubscriptionId String @unique
+
+  status   String
+  isActive Boolean @default(true)
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  cancelAtPeriodEnd Boolean   @default(false)
+  cancelAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan ProviderSubscriptionPlan @relation(fields: [planId], references: [id])
+  user User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model RestrictionLiftRequest {

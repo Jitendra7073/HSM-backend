@@ -19,6 +19,7 @@ const { sendMail } = require("../utils/sendmail");
 const {
   welcomeUserTamplate,
   forgotPasswordTamplate,
+  newProviderRegisteredTemplate,
 } = require("../helper/mail-tamplates/tamplates");
 
 /* ---------------- REGISTRATION ---------------- */
@@ -45,9 +46,66 @@ const register = async (req, res) => {
       data: { ...value, password: hashed },
     });
 
-    res
-      .status(201)
-      .json({ success: true, message: "User registered successfully", user });
+    const accessToken = GenerateAccessToken(user);
+    const refreshToken = GenerateRefreshToken(user, user.tokenVersion);
+
+    // Store refresh token in database
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        token: refreshToken,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      },
+    });
+
+    // Set cookies
+    // Determine cookie settings based on environment
+    const isProduction = process.env.NODE_ENV === "production";
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 15 * 60 * 1000, // 15 minutes
+      path: "/",
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
+    };
+
+    const refreshCookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: "/",
+      ...(isProduction && { domain: process.env.COOKIE_DOMAIN || undefined }),
+    };
+
+    res.cookie("accessToken", accessToken, cookieOptions);
+
+    res.cookie("refreshToken", refreshToken, refreshCookieOptions);
+
+    res.status(201).json({
+      success: true,
+      message: "User registered successfully",
+      accessToken,
+    });
+
+    if (value.role == "provider") {
+      const admins = await prisma.user.findMany({
+        where: { role: "admin" },
+      });
+
+      admins.forEach((admin) => {
+        sendMail({
+          email: admin.email,
+          subject: "New Provider Registered",
+          template: newProviderRegisteredTemplate({
+            adminName: admin.name,
+            providerName: value.name,
+            providerEmail: value.email,
+          }),
+        });
+      });
+    }
 
     sendMail({
       email: value.email,
@@ -199,7 +257,7 @@ const resetPassword = async (req, res) => {
       where: { id: resetRecord.userId },
       data: {
         password: hashed,
-        tokenVersion: { increment: 1 } // Invalidate all refresh tokens
+        tokenVersion: { increment: 1 }, // Invalidate all refresh tokens
       },
     });
 
@@ -290,7 +348,6 @@ const refreshToken = async (req, res) => {
     res.cookie("accessToken", newAccessToken, cookieOptions);
 
     res.cookie("refreshToken", newRefreshToken, refreshCookieOptions);
-
 
     res.status(200).json({
       success: true,

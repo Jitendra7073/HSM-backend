@@ -34,6 +34,8 @@ const getUserProfile = async (req, res) => {
             currentPeriodStart: true,
             currentPeriodEnd: true,
             status: true,
+            cancelAt: true,
+            cancelAtPeriodEnd: true,
           },
         },
       },
@@ -59,24 +61,24 @@ const getUserProfile = async (req, res) => {
 /* ---------------- GET ME ---------------- */
 const getMe = async (req, res) => {
   const token = req.params.token;
-  
+
   if (!token) {
-    return res.status(400).json({ 
-      success: false, 
+    return res.status(400).json({
+      success: false,
       error: true,
-      message: "Token is required" 
+      message: "Token is required",
     });
   }
 
   try {
     // Verify token with proper error handling
     const user = jwt.verify(token, process.env.JWT_SECRET_KEY);
-    
+
     if (!user || !user.id) {
-      return res.status(401).json({ 
-        success: false, 
+      return res.status(401).json({
+        success: false,
         error: true,
-        message: "Invalid token payload" 
+        message: "Invalid token payload",
       });
     }
 
@@ -95,37 +97,37 @@ const getMe = async (req, res) => {
     });
 
     if (!userData) {
-      return res.status(404).json({ 
-        success: false, 
+      return res.status(404).json({
+        success: false,
         error: true,
-        message: "User not found" 
+        message: "User not found",
       });
     }
 
     return res.status(200).json({ success: true, user: userData });
   } catch (err) {
     // Handle JWT verification errors gracefully
-    if (err.name === 'JsonWebTokenError') {
+    if (err.name === "JsonWebTokenError") {
       return res.status(401).json({
         success: false,
         error: true,
-        message: "Invalid token signature"
-      });
-    }
-    
-    if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        error: true,
-        message: "Token has expired"
+        message: "Invalid token signature",
       });
     }
 
-    if (err.name === 'NotBeforeError') {
+    if (err.name === "TokenExpiredError") {
       return res.status(401).json({
         success: false,
         error: true,
-        message: "Token not active yet"
+        message: "Token has expired",
+      });
+    }
+
+    if (err.name === "NotBeforeError") {
+      return res.status(401).json({
+        success: false,
+        error: true,
+        message: "Token not active yet",
       });
     }
 
@@ -133,7 +135,7 @@ const getMe = async (req, res) => {
     return res.status(500).json({
       success: false,
       error: true,
-      message: "Server error while verifying token"
+      message: "Server error while verifying token",
     });
   }
 };

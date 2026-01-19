@@ -57,7 +57,9 @@ const customerPayment = async (req, res) => {
 
     if (alreadyBooked) {
       return res.status(400).json({
-        msg: `You already booked a slot for ${alreadyBooked.date.split("T")[0]}. Please choose another slot.`,
+        msg: `You already booked a slot for ${
+          alreadyBooked.date.split("T")[0]
+        }. Please choose another slot.`,
       });
     }
 
@@ -255,15 +257,9 @@ const providerSubscriptionCheckout = async (req, res) => {
         .json({ msg: "Create business profile before subscribing" });
     }
 
-    // Check if already has an active subscription or trial
-    if (provider.providerSubscription) {
-      return res.status(400).json({ msg: "You already have an active subscription" });
-    }
-
     const sessionConfig = {
       mode: "subscription",
       payment_method_types: ["card"],
-      customer_email: provider.email,
       line_items: [
         {
           price: priceId,
@@ -281,6 +277,12 @@ const providerSubscriptionCheckout = async (req, res) => {
       success_url: `${process.env.FRONTEND_PROVIDER_SUCCESS_URL}`,
       cancel_url: `${process.env.FRONTEND_PROVIDER_CANCEL_URL}`,
     };
+
+    if (provider.providerSubscription?.stripeCustomerId) {
+      sessionConfig.customer = provider.providerSubscription.stripeCustomerId;
+    } else {
+      sessionConfig.customer_email = provider.email;
+    }
 
     // Add 7-day free trial if requested
     if (isTrial) {
@@ -406,10 +408,147 @@ const getPendingPaymentBookings = async (req, res) => {
   }
 };
 
+const { sendMail } = require("../utils/sendmail");
+const { storeNotification } = require("./notification.controller");
+const {
+  providerSubscriptionCancelledEmailTemplate,
+} = require("../helper/mail-tamplates/tamplates");
+
+/* ---------------- CANCEL SUBSCRIPTION ---------------- */
+const cancelSubscription = async (req, res) => {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  const userId = req.user.id;
+
+  try {
+    const subscription = await prisma.providerSubscription.findUnique({
+      where: { userId },
+    });
+
+    if (!subscription) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Subscription not found" });
+    }
+
+    if (!subscription.stripeSubscriptionId) {
+      return res
+        .status(400)
+        .json({ success: false, msg: "Stripe subscription ID missing" });
+    }
+
+    if (subscription.cancelAtPeriodEnd) {
+      return res.status(400).json({
+        success: false,
+        msg: "Subscription is already scheduled for cancellation",
+      });
+    }
+
+    const stripeSubscription = await stripe.subscriptions.update(
+      subscription.stripeSubscriptionId,
+      {
+        cancel_at_period_end: true,
+      }
+    );
+
+    // Update DB
+    await prisma.providerSubscription.update({
+      where: { userId },
+      data: {
+        status: stripeSubscription.status, // Use Stripe status (likely 'active' or 'trialing')
+        cancelAtPeriodEnd: true,
+        cancelAt: new Date(stripeSubscription.cancel_at * 1000),
+      },
+    });
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, name: true },
+    });
+
+    const endDate = new Date(
+      stripeSubscription.current_period_end * 1000
+    ).toLocaleDateString();
+
+    // Send Notification & Email
+    try {
+      await sendMail({
+        email: user.email,
+        subject: "Subscription Cancellation Scheduled",
+        template: providerSubscriptionCancelledEmailTemplate
+          ? providerSubscriptionCancelledEmailTemplate({
+              userName: user.name,
+              endDate: endDate,
+            })
+          : `<p>Hello ${user.name},<br>Your subscription has been cancelled.</p>`,
+      });
+
+      await storeNotification(
+        "Subscription Cancelled",
+        `Your subscription has been cancelled.`,
+        userId
+      );
+    } catch (notifyErr) {
+      console.error("Error sending cancellation notification:", notifyErr);
+    }
+
+    return res.status(200).json({
+      success: true,
+      msg: "Subscription cancellation scheduled successfully",
+    });
+  } catch (error) {
+    console.error("Cancel subscription error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to cancel subscription",
+      error,
+    });
+  }
+};
+
+/* ---------------- MANAGE SUBSCRIPTION ---------------- */
+const userBillingPortal = async (req, res) => {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  const userId = req.user.id;
+
+  try {
+    const subscription = await prisma.providerSubscription.findUnique({
+      where: { userId },
+    });
+
+    if (!subscription) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Subscription not found" });
+    }
+
+    if (!subscription.stripeSubscriptionId) {
+      return res
+        .status(400)
+        .json({ success: false, msg: "Stripe subscription ID missing" });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: subscription.stripeCustomerId,
+      return_url: `${process.env.FRONTEND_PROVIDER_SUCCESS_URL}`,
+    });
+
+    return res.status(200).json({ success: true, url: session.url });
+  } catch (error) {
+    console.error("User billing portal error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to create user billing portal",
+    });
+  }
+};
 module.exports = {
   customerPayment,
   providerSubscriptionCheckout,
   seedProviderSubscriptionPlans,
   CleanupExpiredBookings,
   getPendingPaymentBookings,
+  cancelSubscription,
+  userBillingPortal,
 };

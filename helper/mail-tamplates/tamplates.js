@@ -769,6 +769,159 @@ function providerTrialStartedEmailTemplate({
   `;
 }
 
+/* ---------------- PROVIDER SUBSCRIPTION CANCELLED ---------------- */
+function providerSubscriptionCancelledEmailTemplate({ userName, endDate }) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Subscription Cancelled</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+
+<!-- Logo -->
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="
+        display:block;
+        width:140px;
+        height:auto;
+        margin-bottom:16px;
+        object-fit:contain;
+      "
+    />
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f8;">
+    <tr>
+      <td style="padding:24px;">
+
+        <!-- Main Container -->
+        <table width="100%" cellpadding="0" cellspacing="0"
+          style="max-width:720px; margin:0 auto; background-color:#ffffff; border-collapse:collapse;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:20px 24px; border-bottom:1px solid #e5e7eb;">
+              <h1 style="margin:0; font-size:18px; font-weight:600; color:#dc2626;">
+                Subscription Cancelled
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:24px; font-size:14px; line-height:1.6;">
+
+              <p style="margin:0 0 12px;">
+                Hi <strong>${userName}</strong>,
+              </p>
+
+              <p style="margin:0 0 16px;">
+                We've received your request to cancel your subscription.
+              </p>
+
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                If you change your mind, you can resume your subscription from the billing portal before the end date.
+              </p>
+
+              <!-- Support -->
+              <p style="margin:24px 0 0; font-size:13px; color:#4b5563;">
+                 If this was a mistake or you have feedback, please let us know.
+              </p>
+
+              <p style="margin:6px 0 0; font-size:13px;">
+                <a href="mailto:Fixora@support.com"
+                   style="color:#2563eb; text-decoration:none;">
+                  Fixora@support.com
+                </a>
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+              © ${new Date().getFullYear()} Fixora. All rights reserved.
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>
+  `;
+}
+
+/* ---------------- NEW PROVIDER REGISTERED (ADMIN NOTIFICATION) ---------------- */
+function newProviderRegisteredTemplate({
+  adminName,
+  providerName,
+  providerEmail,
+}) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>New Provider Registered</title>
+</head>
+<body style="margin:0; padding:0; background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; color:#1f2937;">
+  <main style="padding:32px; max-width:720px;">
+    <img
+      src="${HSM_LOGO}"
+      alt="HSM Logo"
+      style="display:block; width:140px; height:auto; margin-bottom:16px; object-fit:contain;"
+    />
+    <p style="margin:0 0 12px 0; font-size:14px;">
+      Hi <strong>${adminName}</strong>,
+    </p>
+    <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6;">
+      A new provider has just registered on the platform.
+    </p>
+    <div style="background-color:#f3f4f6; padding:16px; border-radius:4px; margin:24px 0;">
+      <p style="margin:0 0 8px; font-weight:600;">Provider Details:</p>
+      <p style="margin:0 0 4px; font-size:14px;"><strong>Name:</strong> ${providerName}</p>
+      <p style="margin:0; font-size:14px;"><strong>Email:</strong> ${providerEmail}</p>
+    </div>
+    
+    <!-- CTA -->
+    <p style="margin:24px 0;">
+      <a
+        href="${BASE_URL}/admin"
+        style="
+          display:inline-block;
+          padding:10px 16px;
+          background-color:#2563eb;
+          color:#ffffff;
+          text-decoration:none;
+          font-size:14px;
+          font-weight:600;
+          border-radius:4px;
+        "
+      >
+        View Dashboard
+      </a>
+    </p>
+
+    <p style="margin:0; font-size:13px; color:#4b5563;">
+      Please login to the admin dashboard to verify or review their details if necessary.
+    </p>
+  </main>
+  <footer style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
+    © ${new Date().getFullYear()} HSM. All rights reserved.
+  </footer>
+</body>
+</html>
+  `;
+}
+
 module.exports = {
   welcomeUserTamplate,
   forgotPasswordTamplate,
@@ -776,4 +929,6 @@ module.exports = {
   bookingFailedEmailTemplate,
   providerSubscriptionSuccessEmailTemplate,
   providerTrialStartedEmailTemplate,
+  providerSubscriptionCancelledEmailTemplate,
+  newProviderRegisteredTemplate,
 };

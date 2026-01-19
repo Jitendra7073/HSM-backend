@@ -36,7 +36,6 @@ const stripeWebhookHandler = async (req, res) => {
   }
 
   try {
-
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
 
@@ -288,8 +287,9 @@ const handleCheckoutCompleted = async (session) => {
 
     const payload = {
       title: "New Booking Received",
-      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${user.name
-        }`,
+      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${
+        user.name
+      }`,
       type: "BOOKING_CREATED",
     };
 
@@ -312,7 +312,7 @@ const handleCheckoutCompleted = async (session) => {
           payload.body,
           {
             type: payload.type,
-            tag: `provider_booking_${paymentId}`
+            tag: `provider_booking_${paymentId}`,
           }
         );
       }
@@ -348,7 +348,7 @@ const handleCheckoutCompleted = async (session) => {
           customerPayload.body,
           {
             type: customerPayload.type,
-            tag: `customer_booking_${paymentId}`
+            tag: `customer_booking_${paymentId}`,
           }
         );
       }
@@ -363,7 +363,8 @@ const handleCheckoutCompleted = async (session) => {
 /* ----------------------- PROVIDER SUBSCRIPTION SUCCESS ----------------------- */
 
 const handleProviderSubscriptionCompleted = async (session) => {
-  const { userId, subscriptionType, isTrial, providerName, businessName } = session.metadata || {};
+  const { userId, subscriptionType, isTrial, providerName, businessName } =
+    session.metadata || {};
   if (!userId || subscriptionType !== "PROVIDER") {
     console.warn("Invalid subscription metadata");
     return;
@@ -410,13 +411,14 @@ const handleProviderSubscriptionCompleted = async (session) => {
     subscription.current_period_start ?? subscription.created;
 
   // Use trial_end for trial period, current_period_end for active subscription
-  const periodEndUnix = subscription.status === "trialing" 
-    ? subscription.trial_end 
-    : (subscription.current_period_end ??
-      subscription.created +
-      (priceItem.price.recurring?.interval === "year"
-        ? 365 * 24 * 60 * 60
-        : 30 * 24 * 60 * 60));
+  const periodEndUnix =
+    subscription.status === "trialing"
+      ? subscription.trial_end
+      : subscription.current_period_end ??
+        subscription.created +
+          (priceItem.price.recurring?.interval === "year"
+            ? 365 * 24 * 60 * 60
+            : 30 * 24 * 60 * 60);
 
   const currentPeriodStart = new Date(periodStartUnix * 1000);
   const currentPeriodEnd = new Date(periodEndUnix * 1000);
@@ -434,11 +436,21 @@ const handleProviderSubscriptionCompleted = async (session) => {
       status: subscription.status,
       currentPeriodStart,
       currentPeriodEnd,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt: subscription.cancel_at
+        ? new Date(subscription.cancel_at * 1000)
+        : null,
     },
     update: {
       planId: plan.id,
       status: subscription.status,
       currentPeriodEnd,
+      stripeSubscriptionId: subscription.id,
+      stripeCustomerId: session.customer,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt: subscription.cancel_at
+        ? new Date(subscription.cancel_at * 1000)
+        : null,
     },
   });
 
@@ -447,7 +459,9 @@ const handleProviderSubscriptionCompleted = async (session) => {
     if (isInTrial && isTrial === "true") {
       // Send trial started email
       const { sendMail } = require("../utils/sendmail");
-      const { providerTrialStartedEmailTemplate } = require("../helper/mail-tamplates/tamplates");
+      const {
+        providerTrialStartedEmailTemplate,
+      } = require("../helper/mail-tamplates/tamplates");
 
       await sendMail({
         email: business.contactEmail,
@@ -503,7 +517,9 @@ const handleProviderSubscriptionCompleted = async (session) => {
         },
       };
 
-      const pdfBuffer = await generateProviderSubscriptionInvoicePDF(invoiceData);
+      const pdfBuffer = await generateProviderSubscriptionInvoicePDF(
+        invoiceData
+      );
 
       await sendMail({
         email: business.contactEmail,
@@ -533,17 +549,68 @@ const handleProviderSubscriptionCompleted = async (session) => {
 /* ------------------------ PROVIDER SUBSCRIPTION UPDATE / CANCEL ------------------------ */
 
 const handleProviderSubscriptionUpdated = async (subscription) => {
-  const periodEndUnix = subscription.status === "trialing" 
-    ? subscription.trial_end 
-    : subscription.current_period_end;
+  const periodEndUnix =
+    subscription.status === "trialing"
+      ? subscription.trial_end
+      : subscription.current_period_end;
+
+  // Retrieve current subscription to check for state changes (idempotency for notifications)
+  const currentDbSub = await prisma.ProviderSubscription.findFirst({
+    where: { stripeSubscriptionId: subscription.id },
+  });
+
+  const isNewlyCancelled =
+    !currentDbSub?.cancelAtPeriodEnd && subscription.cancel_at_period_end;
 
   await prisma.ProviderSubscription.updateMany({
     where: { stripeSubscriptionId: subscription.id },
     data: {
       status: subscription.status,
       currentPeriodEnd: new Date(periodEndUnix * 1000),
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt: subscription.cancel_at
+        ? new Date(subscription.cancel_at * 1000)
+        : null,
     },
   });
+
+  if (isNewlyCancelled && currentDbSub) {
+    const user = await prisma.user.findUnique({
+      where: { id: currentDbSub.userId },
+      select: { email: true, name: true, id: true },
+    });
+
+    if (user) {
+      try {
+        const {
+          providerSubscriptionCancelledEmailTemplate,
+        } = require("../helper/mail-tamplates/tamplates");
+        await sendMail({
+          email: user.email,
+          subject: "Subscription Cancellation Scheduled",
+          template: providerSubscriptionCancelledEmailTemplate
+            ? providerSubscriptionCancelledEmailTemplate({
+                userName: user.name,
+                endDate: new Date(periodEndUnix * 1000).toLocaleDateString(),
+              })
+            : `<p>Hello ${
+                user.name
+              },<br>Your subscription has been cancelled. It will remain active until ${new Date(
+                periodEndUnix * 1000
+              ).toLocaleDateString()}.</p>`,
+        });
+
+        const { storeNotification } = require("./notification.controller");
+        await storeNotification(
+          "Subscription Cancelled",
+          `Your subscription has been cancelled.`,
+          user.id
+        );
+      } catch (err) {
+        console.error("Error sending cancellation notification:", err);
+      }
+    }
+  }
 };
 
 /* ------------------------- CUSTOMER PAYMENT FAILED ------------------------- */
