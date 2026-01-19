@@ -1,200 +1,207 @@
 const prisma = require("../prismaClient");
 const Stripe = require("stripe");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 /* ---------------- CUSTOMER PAYMENT ---------------- */
 const customerPayment = async (req, res) => {
   const userId = req.user.id;
 
   try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    const { cartItems, addressId } = req.body;
+  const { cartItems, addressId } = req.body;
 
-    /* ---------- BASIC VALIDATION ---------- */
-    if (!cartItems || cartItems.length === 0) {
-      return res.status(400).json({ msg: "Cart is empty" });
-    }
+  /* ---------- BASIC VALIDATION ---------- */
+  if (!cartItems || cartItems.length === 0) {
+    return res.status(400).json({ msg: "Cart is empty" });
+  }
 
-    if (!addressId) {
-      return res.status(400).json({ msg: "Address required" });
-    }
+  if (!addressId) {
+    return res.status(400).json({ msg: "Address required" });
+  }
 
-    /* ---------- FETCH CART ---------- */
-    const dbCart = await prisma.cart.findMany({
-      where: { id: { in: cartItems }, userId },
-      include: {
-        service: true,
-        business: true,
-        slot: true,
-      },
+  /* ---------- FETCH CART ---------- */
+  const dbCart = await prisma.cart.findMany({
+    where: { id: { in: cartItems }, userId },
+    include: {
+      service: true,
+      business: true,
+      slot: true,
+    },
+  });
+
+  if (!dbCart.length) {
+    return res.status(400).json({ msg: "Invalid cart items" });
+  }
+
+  /* ---------- SAME BUSINESS CHECK ---------- */
+  const businessIds = [...new Set(dbCart.map((c) => c.business.id))];
+  if (businessIds.length > 1) {
+    return res.status(400).json({
+      msg: "Only same-business services allowed",
     });
+  }
 
-    if (!dbCart.length) {
-      return res.status(400).json({ msg: "Invalid cart items" });
-    }
+  /* ---------- DUPLICATE BOOKING CHECK ---------- */
+  const alreadyBooked = await prisma.booking.findFirst({
+    where: {
+      userId,
+      OR: dbCart.map((item) => ({
+        serviceId: item.serviceId,
+        slotId: item.slotId,
+        date: item.date,
+        bookingStatus: {
+          in: ["CONFIRMED", "PENDING_PAYMENT"],
+        },
+      })),
+    },
+  });
 
-    /* ---------- SAME BUSINESS CHECK ---------- */
-    const businessIds = [...new Set(dbCart.map((c) => c.business.id))];
-    if (businessIds.length > 1) {
-      return res.status(400).json({
-        msg: "Only same-business services allowed",
-      });
-    }
 
-    /* ---------- DUPLICATE BOOKING CHECK ---------- */
-    const alreadyBooked = await prisma.booking.findFirst({
-      where: {
-        userId,
-        OR: dbCart.map((item) => ({
-          serviceId: item.serviceId,
-          slotId: item.slotId,
-          date: item.date,
-          bookingStatus: {
-            in: ["CONFIRMED", "PENDING_PAYMENT"],
-          },
-        })),
-      },
+  if (alreadyBooked) {
+    return res.status(400).json({
+      msg: `You already booked a slot for ${
+        alreadyBooked.date.split("T")[0]
+      }. Please choose another slot.`,
     });
+  }
 
-    if (alreadyBooked) {
-      return res.status(400).json({
-        msg: `You already booked a slot for ${
-          alreadyBooked.date.split("T")[0]
-        }. Please choose another slot.`,
-      });
-    }
+  /* ---------- CALCULATE TOTAL ---------- */
+  const totalAmount = dbCart.reduce((sum, item) => sum + item.service.price, 0);
+  if (totalAmount < 50) {
+    return res.status(400).json({
+      msg: "Minimum payment amount must be ₹50",
+    });
+  }
 
-    /* ---------- CALCULATE TOTAL ---------- */
-    const totalAmount = dbCart.reduce(
-      (sum, item) => sum + item.service.price,
-      0
-    );
+  /* --------------------------- SLOT RESERVATION WITH LOCKING --------------------------- */
+  let reservedBookings;
 
-    /* --------------------------- SLOT RESERVATION WITH LOCKING --------------------------- */
-    let reservedBookings;
+  try {
+    reservedBookings = await prisma.$transaction(
+      async (tx) => {
+        const bookings = [];
 
-    try {
-      reservedBookings = await prisma.$transaction(
-        async (tx) => {
-          const bookings = [];
+        for (const item of dbCart) {
+          // Get service with slot limit
+          const service = await tx.service.findUnique({
+            where: { id: item.serviceId },
+            select: { totalBookingAllow: true },
+          });
 
-          for (const item of dbCart) {
-            // Get service with slot limit
-            const service = await tx.service.findUnique({
-              where: { id: item.serviceId },
-              select: { totalBookingAllow: true },
-            });
-
-            if (!service) {
-              throw new Error(`Service ${item.serviceId} not found`);
-            }
-
-            // Count existing VALID bookings (not expired)
-            const count = await tx.booking.count({
-              where: {
-                serviceId: item.serviceId,
-                slotId: item.slotId,
-                date: item.date,
-                bookingStatus: {
-                  in: ["CONFIRMED", "PENDING_PAYMENT"],
-                },
-                OR: [
-                  { expiresAt: null }, // Confirmed bookings
-                  { expiresAt: { gt: new Date() } }, // Non-expired pending
-                ],
-              },
-            });
-
-            // CHECK IF SLOT IS FULL
-            if (count >= service.totalBookingAllow) {
-              throw new Error(
-                `Slot ${item.slot?.time || "Unknown"} is full for ${
-                  item.service.name
-                }`
-              );
-            }
-
-            // Create booking reservation
-            const booking = await tx.booking.create({
-              data: {
-                addressId,
-                userId,
-                serviceId: item.serviceId,
-                businessProfileId: item.business.id,
-                slotId: item.slotId,
-                date: item.date,
-                totalAmount: item.service.price, // Individual amount per booking
-                bookingStatus: "PENDING_PAYMENT",
-                paymentStatus: "PENDING",
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
-              },
-            });
-
-            bookings.push(booking);
+          if (!service) {
+            throw new Error(`Service ${item.serviceId} not found`);
           }
 
-          return bookings;
-        },
-        {
-          isolationLevel: "Serializable",
-          timeout: 10000, // 10 second timeout
+          // Count existing VALID bookings (not expired)
+          const count = await tx.booking.count({
+            where: {
+              serviceId: item.serviceId,
+              slotId: item.slotId,
+              date: item.date,
+              bookingStatus: {
+                in: ["CONFIRMED", "PENDING_PAYMENT"],
+              },
+              OR: [
+                { expiresAt: null }, // Confirmed bookings
+                { expiresAt: { gt: new Date() } }, // Non-expired pending
+              ],
+            },
+          });
+
+
+          // CHECK IF SLOT IS FULL
+          if (count >= service.totalBookingAllow) {
+            throw new Error(
+              `Slot ${item.slot?.time || "Unknown"} is full for ${
+                item.service.name
+              }`
+            );
+          }
+
+          // Create booking reservation
+          const booking = await tx.booking.create({
+            data: {
+              addressId,
+              userId,
+              serviceId: item.serviceId,
+              businessProfileId: item.business.id,
+              slotId: item.slotId,
+              date: item.date,
+              totalAmount: item.service.price, // Individual amount per booking
+              bookingStatus: "PENDING_PAYMENT",
+              paymentStatus: "PENDING",
+              expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 min lock
+            },
+          });
+
+
+          bookings.push(booking);
         }
-      );
-    } catch (transactionError) {
-      console.error("Slot reservation failed:", transactionError.message);
 
-      return res.status(409).json({
-        msg: "This time slot was just booked by someone else. Please choose another available slot.",
-      });
-    }
 
-    /* ---------- CREATE PAYMENT RECORD ---------- */
-    const paymentRecord = await prisma.customerPayment.create({
-      data: {
-        userId,
-        addressId,
-        amount: totalAmount,
-        status: "PENDING",
-        bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
+        return bookings;
       },
-    });
+      {
+        isolationLevel: "Serializable",
+        timeout: 10000, // 10 second timeout
+      }
+    );
+  } catch (transactionError) {
+    console.error("Slot reservation failed:", transactionError.message);
 
-    /* ---------- STRIPE CHECKOUT ---------- */
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      metadata: {
-        userId,
-        addressId,
-        paymentId: paymentRecord.id,
-        bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
-        dbCart: JSON.stringify(cartItems),
-      },
-      line_items: dbCart.map((item) => ({
-        price_data: {
-          currency: "inr",
-          product_data: { name: item.service.name },
-          unit_amount: item.service.price * 100,
-        },
-        quantity: 1,
-      })),
-      success_url: `${process.env.FRONTEND_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: process.env.FRONTEND_CANCEL_URL,
+    return res.status(409).json({
+      msg: "This time slot was just booked by someone else. Please choose another available slot.",
     });
+  }
 
-    /* ---------- STORE PAYMENT LINK IN BOOKINGS ---------- */
-    await prisma.booking.updateMany({
-      where: {
-        id: { in: reservedBookings.map((b) => b.id) },
-        bookingStatus: "PENDING_PAYMENT",
-      },
-      data: {
-        paymentLink: session.url,
-      },
-    });
+  /* ---------- CREATE PAYMENT RECORD ---------- */
+  const paymentRecord = await prisma.customerPayment.create({
+    data: {
+      userId,
+      addressId,
+      amount: totalAmount,
+      status: "PENDING",
+      bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
+    },
+  });
 
-    return res.json({
-      url: session.url,
-      bookingIds: reservedBookings.map((b) => b.id),
-    });
+
+  /* ---------- STRIPE CHECKOUT ---------- */
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    metadata: {
+      userId,
+      addressId,
+      paymentId: paymentRecord.id,
+      bookingIds: JSON.stringify(reservedBookings.map((b) => b.id)),
+      dbCart: JSON.stringify(cartItems),
+    },
+    line_items: dbCart.map((item) => ({
+      price_data: {
+        currency: "inr",
+        product_data: { name: item.service.name },
+        unit_amount: item.service.price * 100,
+      },
+      quantity: 1,
+    })),
+    success_url: `${process.env.FRONTEND_SUCCESS_URL}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: process.env.FRONTEND_CANCEL_URL,
+  });
+
+  /* ---------- STORE PAYMENT LINK IN BOOKINGS ---------- */
+  await prisma.booking.updateMany({
+    where: {
+      id: { in: reservedBookings.map((b) => b.id) },
+      bookingStatus: "PENDING_PAYMENT",
+    },
+    data: {
+      paymentLink: session.url,
+    },
+  });
+
+  return res.json({
+    url: session.url,
+    bookingIds: reservedBookings.map((b) => b.id),
+  });
   } catch (err) {
     console.error("Payment initiation error:", err.message);
     return res.status(500).json({
