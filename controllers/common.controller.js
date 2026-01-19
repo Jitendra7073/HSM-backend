@@ -34,7 +34,6 @@ const getUserProfile = async (req, res) => {
             currentPeriodStart: true,
             currentPeriodEnd: true,
             status: true,
-            cancelAt: true,
             cancelAtPeriodEnd: true,
           },
         },
@@ -53,6 +52,7 @@ const getUserProfile = async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       success: false,
+      err,
       msg: "Server Error: Could not fetch user profile.",
     });
   }
