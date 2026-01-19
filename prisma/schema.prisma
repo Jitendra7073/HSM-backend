@@ -306,9 +306,9 @@ model Feedback {
   comment     String
   servicename String
   createdAt   DateTime @default(now())
-  bookingId   String   @unique
+  bookingId   String
   userId      String
-  serviceId   String   @unique
+  serviceId   String
   booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

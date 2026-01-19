@@ -1115,18 +1115,6 @@ const giveFeedback = async (req, res) => {
       });
     }
 
-    /* ---------------- DUPLICATE FEEDBACK CHECK ---------------- */
-    const existingFeedback = await prisma.feedback.findUnique({
-      where: { bookingId },
-    });
-
-    if (existingFeedback) {
-      return res.status(409).json({
-        success: false,
-        msg: "Feedback already submitted for this booking",
-      });
-    }
-
     /* ---------------- TRANSACTION ---------------- */
     const feedback = await prisma.$transaction(async (tx) => {
       const feedback = await tx.feedback.create({
@@ -1224,6 +1212,12 @@ const getCancellationDetails = async (req, res) => {
       },
     });
   } catch (error) {
+    if (error.code === "P2002") {
+      return res.status(409).json({
+        success: false,
+        msg: "Feedback already submitted for this booking",
+      });
+    }
     console.error("Get cancellation error:", error);
     return res.status(500).json({
       success: false,
