@@ -7,22 +7,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// *
-/// * ---------------- USER MODEL ----------------
 model User {
-  id                    String                @id @default(uuid())
-  name                  String
-  email                 String                @unique
-  mobile                String
-  password              String
-  role                  Role                  @default(customer)
-  tokenVersion          Int                   @default(0)
-  createdAt             DateTime              @default(now())
-  isRestricted          Boolean               @default(false)
-  restrictedAt          DateTime?
-  restrictedBy          String?
-  restrictionLiftedAt   DateTime?
-  restrictionReason     String?
+  id                  String    @id @default(uuid())
+  name                String
+  email               String    @unique
+  mobile              String
+  password            String
+  role                Role      @default(customer)
+  tokenVersion        Int       @default(0)
+  createdAt           DateTime  @default(now())
+  isRestricted        Boolean   @default(false)
+  restrictedAt        DateTime?
+  restrictedBy        String?
+  restrictionLiftedAt DateTime?
+  restrictionReason   String?
+
   addresses             Address[]
   bookings              Booking[]
   businessProfile       BusinessProfile?
@@ -37,13 +36,14 @@ model User {
   providerSubscription  ProviderSubscription?
   refreshTokens         RefreshToken[]
 
+  customerActivityLogs CustomerActivityLog[]
+  actorActivityLogs    ProviderAdminActivityLog[] @relation("ActorLogs")
+
   @@index([email])
   @@index([role])
   @@index([isRestricted])
 }
 
-/// *
-/// * ---------------- RESET TOKEN MODEL ----------------
 model resetToken {
   id        String   @id @default(uuid())
   userId    String
@@ -51,36 +51,33 @@ model resetToken {
   expiresAt DateTime
 }
 
-/// *
-/// * ---------------- REFRESH TOKEN MODEL ----------------
 model RefreshToken {
   id        String   @id @default(uuid())
   userId    String
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
 }
 
-/// *
-/// * ---------------- BUSINESS PROFILE MODEL ----------------
 model BusinessProfile {
-  id                        String                   @id @default(uuid())
-  userId                    String                   @unique
+  id                        String    @id @default(uuid())
+  userId                    String    @unique
   businessName              String
   businessCategoryId        String
   contactEmail              String
   phoneNumber               String
   websiteURL                String?
   socialLinks               Json?
-  isActive                  Boolean                  @default(true)
+  isActive                  Boolean   @default(true)
   approvedAt                DateTime?
-  isApproved                Boolean                  @default(false)
-  isRejected                Boolean                  @default(false)
-  isRestricted              Boolean                  @default(false)
+  isApproved                Boolean   @default(false)
+  isRejected                Boolean   @default(false)
+  isRestricted              Boolean   @default(false)
   rejectedAt                DateTime?
   rejectionReason           String?
   restrictedAt              DateTime?
@@ -88,119 +85,123 @@ model BusinessProfile {
   restrictionLiftedAt       DateTime?
   restrictionReason         String?
   restrictionRequestMessage String?
-  Booking                   Booking[]
-  category                  Businesscategory         @relation(fields: [businessCategoryId], references: [id])
-  user                      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  carts                     Cart[]
-  RestrictionLiftRequest    RestrictionLiftRequest[]
-  services                  Service[]
-  slots                     Slot[]
+
+  Booking                Booking[]
+  carts                  Cart[]
+  RestrictionLiftRequest RestrictionLiftRequest[]
+  services               Service[]
+  slots                  Slot[]
+
+  category Businesscategory @relation(fields: [businessCategoryId], references: [id])
+  user     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([businessName, contactEmail])
 }
 
-/// *
-/// * ---------------- BUSINESS CATEGORY MODEL ----------------
 model Businesscategory {
-  id               String            @id @default(uuid())
-  name             String
-  description      String
-  createdBy        String            @default("admin")
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   businessProfiles BusinessProfile[]
-  user             User              @relation(fields: [createdBy], references: [id])
   services         Service[]
+
+  user User @relation(fields: [createdBy], references: [id])
 }
 
-/// *
-/// * ---------------- ADDRESS MODEL ----------------
 model Address {
-  id              String            @id @default(uuid())
-  street          String
-  city            String
-  state           String
-  postalCode      String
-  country         String
-  type            AddressType       @default(HOME)
-  landmark        String            @default("N/A")
-  userId          String
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String      @id @default(uuid())
+  street     String
+  city       String
+  state      String
+  postalCode String
+  country    String
+  type       AddressType @default(HOME)
+  landmark   String      @default("N/A")
+  userId     String
+
   Booking         Booking[]
   CustomerPayment CustomerPayment[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
-/// *
-/// * ---------------- SERVICE MODEL ----------------
 model Service {
-  id                        String                   @id @default(cuid())
-  name                      String
-  description               String?
-  durationInMinutes         Int
-  price                     Int
-  totalBookingAllow         Int
-  currency                  String                   @default("INR")
-  isActive                  Boolean                  @default(true)
-  coverImage                String?
-  images                    String[]
-  averageRating             Float?                   @default(0)
-  reviewCount               Int                      @default(0)
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
-  businessProfileId         String
-  businessCategoryId        String
-  isRestricted              Boolean                  @default(false)
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  durationInMinutes Int
+  price             Int
+  totalBookingAllow Int
+  currency          String   @default("INR")
+  isActive          Boolean  @default(true)
+  coverImage        String?
+  images            String[]
+  averageRating     Float?   @default(0)
+  reviewCount       Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  businessProfileId  String
+  businessCategoryId String
+
+  isRestricted              Boolean   @default(false)
   restrictedAt              DateTime?
   restrictedBy              String?
   restrictionLiftedAt       DateTime?
   restrictionReason         String?
   restrictionRequestMessage String?
-  bookings                  Booking[]
-  carts                     Cart[]
-  feedback                  Feedback[]
-  RestrictionLiftRequest    RestrictionLiftRequest[]
-  category                  Businesscategory         @relation(fields: [businessCategoryId], references: [id])
-  businessProfile           BusinessProfile          @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  bookings               Booking[]
+  carts                  Cart[]
+  feedback               Feedback[]
+  RestrictionLiftRequest RestrictionLiftRequest[]
+
+  category        Businesscategory @relation(fields: [businessCategoryId], references: [id])
+  businessProfile BusinessProfile  @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- SLOT MODEL ----------------
 model Slot {
-  id                String           @id @default(uuid())
+  id                String  @id @default(uuid())
   time              String
   businessProfileId String?
-  bookings          Booking[]
-  carts             Cart[]
-  businessProfile   BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+
+  bookings Booking[]
+  carts    Cart[]
+
+  businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- BOOKING MODEL ----------------
 model Booking {
-  id                 String          @id @default(uuid())
+  id                 String        @id @default(uuid())
   userId             String
   addressId          String
   serviceId          String
   businessProfileId  String
   slotId             String?
   totalAmount        Int
-  paymentStatus      PaymentStatus   @default(PENDING)
-  bookingStatus      BookingStatus   @default(PENDING)
+  paymentStatus      PaymentStatus @default(PENDING)
+  bookingStatus      BookingStatus @default(PENDING)
   date               String
   paymentLink        String?
-  isFeedbackProvided Boolean         @default(false)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  isFeedbackProvided Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
   expiresAt          DateTime?
-  address            Address         @relation(fields: [addressId], references: [id], onDelete: Cascade)
-  businessProfile    BusinessProfile @relation(fields: [businessProfileId], references: [id])
-  service            Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  slot               Slot?           @relation(fields: [slotId], references: [id])
-  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cancellation       Cancellation?
-  feedback           Feedback[]
+
+  address         Address         @relation(fields: [addressId], references: [id], onDelete: Cascade)
+  businessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id])
+  service         Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  slot            Slot?           @relation(fields: [slotId], references: [id])
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  cancellation Cancellation?
+  feedback     Feedback[]
 
   @@index([userId])
   @@index([businessProfileId])
@@ -209,8 +210,6 @@ model Booking {
   @@index([createdAt])
 }
 
-/// *
-/// * ---------------- CANCELLATION MODEL ----------------
 model Cancellation {
   id                 String        @id @default(uuid())
   bookingId          String        @unique
@@ -223,23 +222,21 @@ model Cancellation {
   cancellationFee    Int?
   hoursBeforeService Int?
   refundedAt         DateTime?
-  /// *
-  /// * ---------------- TIMESTAMPS ----------------
-  requestedAt        DateTime      @default(now())
-  approvedAt         DateTime?
-  autoApprovedAt     DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  booking            Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  requestedBy        User          @relation(fields: [requestedById], references: [id])
+
+  requestedAt    DateTime  @default(now())
+  approvedAt     DateTime?
+  autoApprovedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  booking     Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  requestedBy User    @relation(fields: [requestedById], references: [id])
 
   @@index([bookingId])
   @@index([status])
   @@index([refundStatus])
 }
 
-/// *
-/// * ---------------- PAYMENT MODEL ----------------
 model CustomerPayment {
   id              String        @id @default(uuid())
   userId          String
@@ -251,28 +248,26 @@ model CustomerPayment {
   paymentIntentId String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
-  address         Address       @relation(fields: [addressId], references: [id])
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  address Address @relation(fields: [addressId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- CUSTOEMR CART MODEL ----------------
 model Cart {
-  id         String          @id @default(uuid())
+  id         String   @id @default(uuid())
   userId     String
   serviceId  String
   businessId String
   slotId     String
   date       String
-  addedAt    DateTime        @default(now())
-  business   BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  service    Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  slot       Slot            @relation(fields: [slotId], references: [id], onDelete: Cascade)
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt    DateTime @default(now())
+
+  business BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  service  Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  slot     Slot            @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- FCM TOKEN MODEL ----------------
 model FCMToken {
   id        String   @id @default(uuid())
   token     String   @unique
@@ -280,11 +275,10 @@ model FCMToken {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- NOTIFICATION MODEL ----------------
 model Notification {
   id         String   @id @default(uuid())
   title      String
@@ -293,12 +287,11 @@ model Notification {
   createdAt  DateTime @default(now())
   receiverId String
   senderId   String?
-  receiver   User     @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
-  sender     User?    @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  receiver User  @relation("NotificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  sender   User? @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- CUSTOMER FEEDBACK MODEL ----------------
 model Feedback {
   id          String   @id @default(uuid())
   username    String
@@ -306,31 +299,30 @@ model Feedback {
   comment     String
   servicename String
   createdAt   DateTime @default(now())
-  bookingId   String
-  userId      String
-  serviceId   String
-  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bookingId String
+  userId    String
+  serviceId String
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// *
-/// * ---------------- PROVIDER SUBSCRIPTION PLAN ----------------
 model ProviderSubscriptionPlan {
-  id            String                 @id @default(uuid())
+  id            String   @id @default(uuid())
   name          String
   price         Int
-  currency      String                 @default("INR")
+  currency      String   @default("INR")
   interval      String
-  stripePriceId String                 @unique
-  isActive      Boolean                @default(true)
-  createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
+  stripePriceId String   @unique
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   subscriptions ProviderSubscription[]
 }
 
-/// *
-/// * ---------------- PROVIDER SUBSCRIPTION ----------------
 model ProviderSubscription {
   id String @id @default(uuid())
 
@@ -357,39 +349,92 @@ model ProviderSubscription {
 }
 
 model RestrictionLiftRequest {
-  id                String          @id
+  id                String        @id
   businessProfileId String
   serviceId         String?
   reason            String
-  status            RequestStatus   @default(PENDING)
+  status            RequestStatus @default(PENDING)
   adminNote         String?
-  createdAt         DateTime        @default(now())
+  createdAt         DateTime      @default(now())
   updatedAt         DateTime
-  BusinessProfile   BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
-  Service           Service?        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  BusinessProfile BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  Service         Service?        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
   @@index([businessProfileId])
   @@index([status])
 }
 
-/// *
-/// * ---------------- USER ROLE ENUMS ----------------
+model CustomerActivityLog {
+  id String @id @default(uuid())
+
+  customerId String
+  customer   User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  actionType String
+  status     String @default("SUCCESS")
+
+  bookingId String?
+  paymentId String?
+  serviceId String?
+
+  metadata Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([customerId])
+  @@index([actionType])
+  @@index([bookingId])
+  @@index([paymentId])
+  @@index([createdAt])
+}
+
+model ProviderAdminActivityLog {
+  id String @id @default(uuid())
+
+  actorId String
+  actor   User   @relation("ActorLogs", fields: [actorId], references: [id], onDelete: Cascade)
+
+  actorType String
+
+  actionType String
+  status     String @default("SUCCESS")
+
+  businessProfileId String?
+  serviceId         String?
+  bookingId         String?
+  subscriptionId    String?
+
+  metadata Json?
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([actionType])
+  @@index([bookingId])
+  @@index([serviceId])
+  @@index([subscriptionId])
+  @@index([createdAt])
+}
+
 enum Role {
   customer
   provider
   admin
 }
 
-/// *
-/// * ---------------- ADDRESS TYPE ENUMS ----------------
 enum AddressType {
   HOME
   OFFICE
   OTHER
 }
 
-/// *
-/// * ---------------- BOOKING STATUS ENUMS ----------------
 enum BookingStatus {
   PENDING
   PENDING_PAYMENT
@@ -399,8 +444,6 @@ enum BookingStatus {
   CANCELLED
 }
 
-/// *
-/// * ---------------- PAYMENT STATUS ENUMS ----------------
 enum PaymentStatus {
   PENDING
   PAID

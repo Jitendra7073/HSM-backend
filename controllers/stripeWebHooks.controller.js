@@ -28,7 +28,7 @@ const stripeWebhookHandler = async (req, res) => {
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
-      process.env.STRIPE_WEBHOOK_SECRET
+      process.env.STRIPE_WEBHOOK_SECRET,
     );
   } catch (err) {
     console.error("Signature verification failed:", err.message);
@@ -185,6 +185,20 @@ const handleCheckoutCompleted = async (session) => {
           },
         });
 
+        // create log
+        await prisma.customerActivityLog.create({
+          data: {
+            customerId: userId,
+            actionType: "BOOKING_CREATED",
+            status: "SUCCESS",
+            metadata: {
+              paymentId: paymentId,
+              bookingIds: JSON.stringify(confirmedBookings.map((b) => b.id)),
+            },
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent"),
+          },
+        });
         // Clear cart
         await tx.cart.deleteMany({
           where: { id: { in: cartIds }, userId },
@@ -197,10 +211,8 @@ const handleCheckoutCompleted = async (session) => {
       },
       {
         timeout: 10000,
-      }
+      },
     );
-
-    // If transaction returned null, payment was already processed - skip notifications
     if (!result || result.length === 0) {
       return;
     }
@@ -297,7 +309,7 @@ const handleCheckoutCompleted = async (session) => {
       payload.title,
       payload.body,
       provider.userId,
-      user.id
+      user.id,
     );
 
     try {
@@ -313,7 +325,7 @@ const handleCheckoutCompleted = async (session) => {
           {
             type: payload.type,
             tag: `provider_booking_${paymentId}`,
-          }
+          },
         );
       }
     } catch (err) {
@@ -333,7 +345,7 @@ const handleCheckoutCompleted = async (session) => {
       customerPayload.title,
       customerPayload.body,
       user.id,
-      provider.userId
+      provider.userId,
     );
 
     try {
@@ -349,7 +361,7 @@ const handleCheckoutCompleted = async (session) => {
           {
             type: customerPayload.type,
             tag: `customer_booking_${paymentId}`,
-          }
+          },
         );
       }
     } catch (err) {
@@ -385,7 +397,7 @@ const handleProviderSubscriptionCompleted = async (session) => {
   });
 
   const subscription = await stripe.subscriptions.retrieve(
-    session.subscription
+    session.subscription,
   );
 
   const priceItem = subscription.items?.data?.[0];
@@ -454,6 +466,27 @@ const handleProviderSubscriptionCompleted = async (session) => {
     },
   });
 
+  // create log
+  await prisma.providerAdminActivityLog.create({
+    data: {
+      actorId: userId,
+      actorType: req.user.role,
+      actionType: "SUBSCRIPTION_ACTIVATED",
+      status: "SUCCESS",
+      metadata: {
+        planId: plan.id,
+        status: subscription.status,
+        currentPeriodEnd,
+        stripeSubscriptionId: subscription.id,
+        stripeCustomerId: session.customer,
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        cancelAt: subscription.cancel_at,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    },
+  });
+
   /* ---------------- EMAIL FOR TRIAL OR SUBSCRIPTION ---------------- */
   try {
     if (isInTrial && isTrial === "true") {
@@ -480,7 +513,7 @@ const handleProviderSubscriptionCompleted = async (session) => {
       await storeNotification(
         "Free Trial Started!",
         `Your 7-day free trial for ${plan.name} plan has started. Enjoy premium features!`,
-        userId
+        userId,
       );
     } else {
       // Send subscription activated email with invoice
@@ -518,7 +551,7 @@ const handleProviderSubscriptionCompleted = async (session) => {
       };
 
       const pdfBuffer = await generateProviderSubscriptionInvoicePDF(
-        invoiceData
+        invoiceData,
       );
 
       await sendMail({
@@ -574,6 +607,24 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
     },
   });
 
+  // create log
+  await prisma.providerAdminActivityLog.create({
+    data: {
+      actorId: userId,
+      actorType: req.user.role,
+      actionType: "SUBSCRIPTION_UPDATED",
+      status: "SUCCESS",
+      metadata: {
+        status: subscription.status,
+        currentPeriodEnd: new Date(periodEndUnix * 1000),
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        cancelAt: subscription.cancel_at,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    },
+  });
+
   if (isNewlyCancelled && currentDbSub) {
     const user = await prisma.user.findUnique({
       where: { id: currentDbSub.userId },
@@ -596,7 +647,7 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
             : `<p>Hello ${
                 user.name
               },<br>Your subscription has been cancelled. It will remain active until ${new Date(
-                periodEndUnix * 1000
+                periodEndUnix * 1000,
               ).toLocaleDateString()}.</p>`,
         });
 
@@ -604,7 +655,7 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
         await storeNotification(
           "Subscription Cancelled",
           `Your subscription has been cancelled.`,
-          user.id
+          user.id,
         );
       } catch (err) {
         console.error("Error sending cancellation notification:", err);
@@ -647,6 +698,21 @@ const handlePaymentFailed = async (intent) => {
     },
   });
   if (!cart.length) return;
+
+  // create log
+  await prisma.providerAdminActivityLog.create({
+    data: {
+      actorId: userId,
+      actorType: req.user.role,
+      actionType: "PAYMENT_FAILED",
+      status: "SUCCESS",
+      metadata: {
+        intent: intent,
+      },
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent"),
+    },
+  });
 
   await sendMail({
     email: user.email,

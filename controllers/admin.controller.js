@@ -1166,6 +1166,166 @@ const getDashboardAnalytics = async (req, res) => {
   }
 };
 
+/* --------------- ACTIVITY LOGS --------------- */
+
+// Get user activity logs (both customer and provider/admin logs)
+const getUserActivityLogs = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20, actionType } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    // First, get the user to determine their role
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, name: true, email: true },
+    });
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    let logs = [];
+    let total = 0;
+
+    // Build where clause for filtering
+    const buildWhereClause = () => {
+      const where = {};
+      if (actionType && actionType !== "all") {
+        where.actionType = actionType;
+      }
+      return where;
+    };
+
+    // Fetch logs based on user role
+    if (user.role === "customer") {
+      // Fetch customer activity logs
+      const where = { customerId: userId, ...buildWhereClause() };
+
+      [logs, total] = await Promise.all([
+        prisma.customerActivityLog.findMany({
+          where,
+          skip,
+          take,
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            actionType: true,
+            status: true,
+            metadata: true,
+            ipAddress: true,
+            userAgent: true,
+            createdAt: true,
+          },
+        }),
+        prisma.customerActivityLog.count({ where }),
+      ]);
+    } else {
+      // Fetch provider/admin activity logs
+      const where = { actorId: userId, ...buildWhereClause() };
+
+      [logs, total] = await Promise.all([
+        prisma.providerAdminActivityLog.findMany({
+          where,
+          skip,
+          take,
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            actorType: true,
+            actionType: true,
+            status: true,
+            metadata: true,
+            ipAddress: true,
+            userAgent: true,
+            createdAt: true,
+          },
+        }),
+        prisma.providerAdminActivityLog.count({ where }),
+      ]);
+    }
+
+    // Format logs for frontend
+    const formattedLogs = logs.map((log) => ({
+      id: log.id,
+      actionType: log.actionType,
+      actorType: log.actorType || user.role,
+      status: log.status,
+      metadata: log.metadata || {},
+      ipAddress: log.ipAddress,
+      userAgent: log.userAgent,
+      createdAt: log.createdAt,
+      // Add human-readable descriptions
+      description: getActivityDescription(log, user),
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: {
+        logs: formattedLogs,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
+      },
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching user activity logs:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Helper function to generate human-readable descriptions
+const getActivityDescription = (log, user) => {
+  const { actionType, status, metadata } = log;
+
+  // Common action descriptions
+  const descriptions = {
+    REGISTER: `Registered as ${user.role}`,
+    LOGIN:
+      status === "SUCCESS" ? "Logged in successfully" : "Failed login attempt",
+    LOGOUT: "Logged out",
+    LOGOUT_ALL: "Logged out from all devices",
+    PASSWORD_RESET_REQUEST: "Requested password reset",
+    PASSWORD_RESET: "Password reset completed",
+    BOOKING_CANCELLED: `Cancelled booking${
+      metadata?.serviceName ? ` for ${metadata.serviceName}` : ""
+    }`,
+    FEEDBACK_SUBMITTED: `Submitted ${metadata?.rating || ""}★ rating${
+      metadata?.serviceName ? ` for ${metadata.serviceName}` : ""
+    }`,
+    SERVICE_CREATED: `Created service${
+      metadata?.serviceName ? `: ${metadata.serviceName}` : ""
+    }`,
+    SERVICE_UPDATED: `Updated service${
+      metadata?.serviceName ? `: ${metadata.serviceName}` : ""
+    }`,
+    SERVICE_DELETED: `Deleted service`,
+    BUSINESS_CREATED: `Created business profile`,
+    BUSINESS_UPDATED: `Updated business profile`,
+    SLOT_GENERATED: `Generated time slots`,
+    BOOKING_UPDATED: `Updated booking status${
+      metadata?.bookingStatus ? ` to ${metadata.bookingStatus}` : ""
+    }`,
+  };
+
+  return (
+    descriptions[actionType] || actionType.replace(/_/g, " ").toLowerCase()
+  );
+};
+
 module.exports = {
   // User Management
   getAllUsers,
@@ -1190,4 +1350,7 @@ module.exports = {
   // Dashboard
   getDashboardStats,
   getDashboardAnalytics,
+
+  // Activity Logs
+  getUserActivityLogs,
 };

@@ -215,6 +215,38 @@ const addAddress = async (req, res) => {
     const newAddress = await prisma.Address.create({
       data: { ...value, userId },
     });
+
+    if (req.user.role === "customer") {
+      // create log
+      await prisma.customerActivityLog.create({
+        data: {
+          customerId: userId,
+          actionType: "ADDRESS_ADDED",
+          status: "SUCCESS",
+          metadata: {
+            addressId: newAddress.id,
+            role: req.user.role,
+          },
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent"),
+        },
+      });
+    }
+
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "ADDRESS_ADDED",
+        status: "SUCCESS",
+        metadata: {
+          addressId: newAddress.id,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
+
     return res.status(201).send({
       success: true,
       msg: "Address created successfully.",
@@ -264,6 +296,36 @@ const deleteAddress = async (req, res) => {
 
     await prisma.Address.delete({
       where: { id: addressId },
+    });
+
+    if (req.user.role === "customer") {
+      // create log
+      await prisma.customerActivityLog.create({
+        data: {
+          customerId: userId,
+          actionType: "ADDRESS_DELETED",
+          status: "SUCCESS",
+          metadata: {
+            addressId: addressId,
+          },
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent"),
+        },
+      });
+    }
+
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "ADDRESS_DELETED",
+        status: "SUCCESS",
+        metadata: {
+          addressId: addressId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
     });
 
     return res.status(200).json({

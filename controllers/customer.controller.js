@@ -8,6 +8,12 @@ const {
 } = require("../helper/validation/feedback.validation");
 const NotificationService = require("../service/notification-service");
 const { storeNotification } = require("./notification.controller");
+const {
+  logUserActivity,
+  logActionError,
+  logError,
+  LogStatus,
+} = require("../utils/logger");
 
 /* ---------------- GET ALL PROVIDERS (WITH PAGINATION) ---------------- */
 const getAllProviders = async (req, res) => {
@@ -419,8 +425,6 @@ const cancelBooking = async (req, res) => {
   const parseSlotTimeTo24H = (timeStr) => {
     if (!timeStr) return { hours: 0, minutes: 0 };
 
-    // Handle "10:30 AM", "10:30AM", "14:00"
-    // Normalize string: remove extra spaces, uppercase
     const normalized = timeStr.toUpperCase().trim();
 
     let timePart = normalized;
@@ -487,27 +491,16 @@ const cancelBooking = async (req, res) => {
 
     let serviceStart;
     try {
-      // Robust date parsing
       const bookingDate = new Date(booking.date);
       const { hours, minutes } = parseSlotTimeTo24H(booking.slot.time);
 
       serviceStart = new Date(bookingDate);
-      // If booking.date was invalid or in incompatible format
       if (isNaN(serviceStart.getTime())) {
-        // Attempt to parse manually if it's YYYY-MM-DD or DD-MM-YYYY
-        // Assuming date is string. If it's stored as "YYYY-MM-DD" it should work.
-        // If stored as "06-01-2025" (DD-MM-YYYY)
         const parts = booking.date.split(/[-/]/);
         if (parts.length === 3) {
-          // Heuristic: if first part > 12 likely YYYY? or YYYY is usually 4 digits
           if (parts[0].length === 4) {
-            // YYYY-MM-DD
             serviceStart = new Date(`${parts[0]}-${parts[1]}-${parts[2]}`);
           } else {
-            // Assume DD-MM-YYYY (or MM-DD-YYYY depending on locale, but DD-MM is more common in IN)
-            // Try MM-DD-YYYY first? No, User is "EnactOn" (India likely -> DD-MM-YYYY)
-            // But `new Date` prefers MM-DD-YYYY in US locale.
-            // Let's safe convert to YYYY-MM-DD
             serviceStart = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
           }
         }
@@ -523,7 +516,7 @@ const cancelBooking = async (req, res) => {
         "Date parsing error for booking:",
         booking.id,
         booking.date,
-        e
+        e,
       );
       return res.status(400).json({
         success: false,
@@ -621,14 +614,11 @@ const cancelBooking = async (req, res) => {
             status: refund.status,
             amount: refund.amount / 100,
           };
-
-          // Update cancellation record with refund details
-          // Stripe refund statuses: pending, succeeded, failed, canceled
           let refundStatus = "PENDING";
           if (refund.status === "succeeded") {
             refundStatus = "PAID";
           } else if (refund.status === "pending") {
-            refundStatus = "PROCESSING"; // More accurate status for customer
+            refundStatus = "PROCESSING";
           } else if (
             refund.status === "failed" ||
             refund.status === "canceled"
@@ -645,7 +635,6 @@ const cancelBooking = async (req, res) => {
           });
         } else {
           console.warn(`No payment intent found for booking ${booking.id}`);
-          // Still create cancellation record even if no payment found
           await prisma.Cancellation.update({
             where: { bookingId: booking.id },
             data: {
@@ -655,7 +644,6 @@ const cancelBooking = async (req, res) => {
         }
       } catch (refundError) {
         console.error("Refund processing error:", refundError.message);
-        // Update cancellation to show refund pending (can be processed manually)
         try {
           await prisma.Cancellation.update({
             where: { bookingId: booking.id },
@@ -666,13 +654,10 @@ const cancelBooking = async (req, res) => {
         } catch (updateError) {
           console.error("Failed to update cancellation status:", updateError);
         }
-        // Don't fail the cancellation if refund fails - it can be processed manually
       }
     }
 
-    /* =====================================================
-       🔔 NOTIFICATIONS (STORE + PUSH)
-    ===================================================== */
+    /* NOTIFICATIONS (STORE + PUSH)*/
 
     /* ---------- CUSTOMER ---------- */
     const getRefundStatusMessage = () => {
@@ -697,7 +682,7 @@ const cancelBooking = async (req, res) => {
       customerPayload.title,
       customerPayload.body,
       customerId,
-      customerId
+      customerId,
     );
 
     try {
@@ -713,7 +698,7 @@ const cancelBooking = async (req, res) => {
           {
             type: customerPayload.type,
             tag: `booking_cancel_${booking.id}`,
-          }
+          },
         );
       }
     } catch (err) {
@@ -742,7 +727,7 @@ const cancelBooking = async (req, res) => {
       providerPayload.title,
       providerPayload.body,
       providerId,
-      customerId
+      customerId,
     );
 
     try {
@@ -758,13 +743,32 @@ const cancelBooking = async (req, res) => {
           {
             type: providerPayload.type,
             tag: `booking_cancel_${booking.id}`,
-          }
+          },
         );
       }
     } catch (err) {
       console.error("Provider push error:", err.message);
     }
 
+    // Log booking cancellation to database for admin tracking
+    await logUserActivity({
+      user: req.user,
+      actionType: "BOOKING_CANCELLED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        bookingId: booking.id,
+        serviceName: booking.service.name,
+        refundAmount,
+        cancellationFee,
+        hoursBeforeService: Math.floor(diffHours),
+        paymentStatus: booking.paymentStatus,
+        refundStatus: refundResponse?.status || "N/A",
+      },
+      req,
+      description: `Booking cancelled ${Math.floor(
+        diffHours,
+      )} hours before service. Refund: ₹${refundAmount}`,
+    });
     /* ---------------- RESPONSE ---------------- */
     return res.status(200).json({
       success: true,
@@ -1152,6 +1156,22 @@ const giveFeedback = async (req, res) => {
 
       return feedback;
     });
+    // Log feedback submission to database for admin tracking
+    await logUserActivity({
+      user: req.user,
+      actionType: "FEEDBACK_SUBMITTED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        bookingId: booking.id,
+        serviceId: booking.serviceId,
+        serviceName: booking.service.name,
+        rating,
+        hasComment: !!comment,
+        commentLength: comment?.length || 0,
+      },
+      req,
+      description: `Feedback submitted: ${rating} stars for ${booking.service.name}`,
+    });
 
     return res.status(201).json({
       success: true,
@@ -1159,7 +1179,10 @@ const giveFeedback = async (req, res) => {
       feedback,
     });
   } catch (error) {
-    console.error("Give Feedback Error:", error);
+    logError("Give Feedback Error", error, {
+      userId,
+      bookingId: req.body?.bookingId,
+    });
     return res.status(500).json({
       success: false,
       msg: "Server error: unable to save your feedback",

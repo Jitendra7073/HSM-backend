@@ -77,9 +77,6 @@ const createBusiness = async (req, res) => {
         userId,
         businessCategoryId: businessCategory.id,
       },
-      include: {
-        // user: true, // Optimzation: we might not need to fetch user back immediately if not used
-      },
     });
 
     // ---------------- NOTIFY ADMINS ----------------
@@ -96,20 +93,35 @@ const createBusiness = async (req, res) => {
           receiverId: admin.id,
           senderId: userId,
           read: false,
-          // You might want to add meta data if schema supports it, but currently message is string.
         }));
 
         await prisma.notification.createMany({
           data: notifications,
         });
-
-        // Optional: Keep existing Push Notification logic if valid, or remove if simpler is better.
-        // For now, let's stick to DB notification which feeds the Admin Panel UI.
       }
     } catch (notifyError) {
       console.error("Failed to notify admins about new business:", notifyError);
     }
 
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "BUSINESS_CREATED",
+        status: "SUCCESS",
+        metadata: {
+          businessId: newBusiness.id,
+          businessName: newBusiness.businessName,
+          businessCategoryId: newBusiness.businessCategoryId,
+          businessCategoryName: businessCategory.name,
+          businessPhoneNumber: newBusiness.phoneNumber,
+          businessContactEmail: newBusiness.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
     return res.status(201).json({
       success: true,
       msg: "Business created successfully.",
@@ -175,6 +187,26 @@ const updateBusiness = async (req, res) => {
       },
     });
 
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "BUSINESS_UPDATED",
+        status: "SUCCESS",
+        metadata: {
+          businessId: updatedBusiness.id,
+          businessName: updatedBusiness.businessName,
+          businessCategoryId: updatedBusiness.businessCategoryId,
+          businessCategoryName: updatedBusiness.businessCategoryName,
+          businessPhoneNumber: updatedBusiness.phoneNumber,
+          businessContactEmail: updatedBusiness.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
+
     return res.status(200).json({
       success: true,
       msg: "Business profile updated successfully.",
@@ -203,6 +235,26 @@ const deleteBusiness = async (req, res) => {
         msg: "Business profile not found.",
       });
     }
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "BUSINESS_DELETED",
+        status: "SUCCESS",
+        metadata: {
+          businessId: businessDetails.id,
+          businessName: businessDetails.businessName,
+          businessCategoryId: businessDetails.businessCategoryId,
+          businessCategoryName: businessDetails.businessCategoryName,
+          businessPhoneNumber: businessDetails.phoneNumber,
+          businessContactEmail: businessDetails.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
 
     await prisma.BusinessProfile.delete({
       where: { userId },
@@ -284,7 +336,7 @@ const getAllBusinessCategory = async (req, res) => {
           totalProvidersCount,
           activeProvidersCount,
         };
-      })
+      }),
     );
 
     return res.status(200).json({
@@ -593,6 +645,26 @@ const createService = async (req, res) => {
       },
     });
 
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "SERVICE_CREATED",
+        status: "SUCCESS",
+        metadata: {
+          serviceId: newService.id,
+          serviceName: newService.name,
+          serviceCategoryId: newService.serviceCategoryId,
+          serviceCategoryName: serviceCategory.name,
+          servicePhoneNumber: newService.phoneNumber,
+          serviceContactEmail: newService.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
+
     return res.status(201).json({
       success: true,
       msg: "Service created successfully.",
@@ -727,6 +799,26 @@ const updateService = async (req, res) => {
       },
     });
 
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "SERVICE_UPDATED",
+        status: "SUCCESS",
+        metadata: {
+          serviceId: updatedService.id,
+          serviceName: updatedService.name,
+          serviceCategoryId: updatedService.serviceCategoryId,
+          serviceCategoryName: updatedService.serviceCategoryName,
+          servicePhoneNumber: updatedService.phoneNumber,
+          serviceContactEmail: updatedService.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
+
     return res.status(200).json({
       success: true,
       msg: "Service updated successfully.",
@@ -815,6 +907,26 @@ const deleteService = async (req, res) => {
       });
     }
 
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "SERVICE_DELETED",
+        status: "SUCCESS",
+        metadata: {
+          serviceId: existingService.id,
+          serviceName: existingService.name,
+          serviceCategoryId: existingService.serviceCategoryId,
+          serviceCategoryName: existingService.serviceCategoryName,
+          servicePhoneNumber: existingService.phoneNumber,
+          serviceContactEmail: existingService.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
+
     // Delete the service
     await prisma.Service.delete({
       where: { id: serviceId },
@@ -899,7 +1011,7 @@ const generateSlots = async (req, res) => {
       const formatted = formatTime(time);
 
       const exists = existingSlots.some(
-        (slot) => normalizeTime(slot.time) === normalizeTime(formatted)
+        (slot) => normalizeTime(slot.time) === normalizeTime(formatted),
       );
 
       if (!exists) {
@@ -919,6 +1031,26 @@ const generateSlots = async (req, res) => {
 
     const created = await prisma.Slot.createMany({
       data: generatedSlots,
+    });
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "SLOTS_GENERATED",
+        status: "SUCCESS",
+        metadata: {
+          businessId: business.id,
+          businessName: business.businessName,
+          businessCategoryId: business.businessCategoryId,
+          businessCategoryName: business.businessCategoryName,
+          businessPhoneNumber: business.phoneNumber,
+          businessContactEmail: business.contactEmail,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
     });
 
     return res.status(201).json({
@@ -971,6 +1103,23 @@ const createSingleSlot = async (req, res) => {
       data: {
         time,
         businessProfileId: business.id,
+      },
+    });
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "SLOT_CREATED",
+        status: "SUCCESS",
+        metadata: {
+          newSlotId: newSlot.id,
+          newSlotTime: newSlot.time,
+          newSlotBusinessProfileId: newSlot.businessProfileId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
       },
     });
 
@@ -1058,6 +1207,23 @@ const deleteSlot = async (req, res) => {
         msg: "Slot not found or does not belong to your business.",
       });
     }
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "SLOT_DELETED",
+        status: "SUCCESS",
+        metadata: {
+          slotId: existingSlot.id,
+          slotTime: existingSlot.time,
+          slotBusinessProfileId: existingSlot.businessProfileId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
 
     // Delete the slot
     await prisma.Slot.delete({
@@ -1295,7 +1461,7 @@ const updateBooking = async (req, res) => {
       notificationPayload.title,
       notificationPayload.body,
       booking.userId,
-      providerId
+      providerId,
     );
     try {
       const fcmTokens = await prisma.fCMToken.findMany({
@@ -1306,12 +1472,31 @@ const updateBooking = async (req, res) => {
         await NotificationService.sendNotification(
           fcmTokens,
           notificationPayload.title,
-          notificationPayload.body
+          notificationPayload.body,
         );
       }
     } catch (notifyErr) {
       console.error("Notification error:", notifyErr);
     }
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "BOOKING_UPDATED",
+        status: "SUCCESS",
+        metadata: {
+          bookingId: updatedBooking.id,
+          bookingStatus: updatedBooking.bookingStatus,
+          bookingServiceId: updatedBooking.serviceId,
+          bookingUserId: updatedBooking.userId,
+          bookingProviderId: updatedBooking.providerId,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
 
     return res.status(200).json({
       success: true,
@@ -1404,16 +1589,16 @@ const getDashboardStats = async (req, res) => {
     const bookingsData = {
       totalBookings: allBookings.length,
       pending: allBookings.filter(
-        (b) => b.bookingStatus.toLowerCase() === "pending"
+        (b) => b.bookingStatus.toLowerCase() === "pending",
       ).length,
       confirmed: allBookings.filter(
-        (b) => b.bookingStatus.toLowerCase() === "confirmed"
+        (b) => b.bookingStatus.toLowerCase() === "confirmed",
       ).length,
       completed: allBookings.filter(
-        (b) => b.bookingStatus.toLowerCase() === "completed"
+        (b) => b.bookingStatus.toLowerCase() === "completed",
       ).length,
       cancelled: allBookings.filter(
-        (b) => b.bookingStatus.toLowerCase() === "cancelled"
+        (b) => b.bookingStatus.toLowerCase() === "cancelled",
       ).length,
     };
 
@@ -1440,7 +1625,7 @@ const getDashboardStats = async (req, res) => {
         }
         return acc;
       },
-      { realized: 0, potential: 0, lost: 0, total: 0 }
+      { realized: 0, potential: 0, lost: 0, total: 0 },
     );
 
     const totalEarnings = earningsBreakdown.total;
@@ -1637,11 +1822,11 @@ const GetAllCancellationBookings = async (req, res) => {
           cancelDetails,
           user,
           service,
-          booking
+          booking,
         );
 
         return formattedCancellation;
-      })
+      }),
     );
 
     return res.status(200).json({
@@ -1698,6 +1883,22 @@ const requestUnrestrict = async (req, res) => {
         data: notifications,
       });
     }
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "REQUEST_UNRESTRICT",
+        status: "SUCCESS",
+        metadata: {
+          userId: userId,
+          message: message,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
 
     return res.status(200).json({
       success: true,
@@ -1778,6 +1979,22 @@ const requestServiceUnrestrict = async (req, res) => {
         data: notifications,
       });
     }
+
+    // create log
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: req.user.role,
+        actionType: "REQUEST_UNRESTRICT",
+        status: "SUCCESS",
+        metadata: {
+          userId: userId,
+          message: message,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
 
     return res.status(200).json({
       success: true,
