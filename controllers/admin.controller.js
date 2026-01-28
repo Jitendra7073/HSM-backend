@@ -1,6 +1,7 @@
 const prisma = require("../prismaClient");
 const Joi = require("joi");
 const { sendMail } = require("../utils/sendmail");
+const { logProviderAdminActivity, LogStatus } = require("../utils/logger");
 
 // Joi schema for restriction reason
 const restrictReasonSchema = Joi.object({
@@ -203,6 +204,23 @@ const restrictUser = async (req, res) => {
       }),
     });
 
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "USER_RESTRICTED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        targetUserId: userId,
+        targetUserName: user.name,
+        targetUserEmail: user.email,
+        reason: reason,
+      },
+      req,
+      targetId: userId,
+      targetType: "user",
+      description: `Restricted user ${user.name} (${user.email})`,
+    });
+
     res.status(200).json({
       success: true,
       message: "User restricted successfully",
@@ -218,6 +236,7 @@ const restrictUser = async (req, res) => {
 const liftUserRestriction = async (req, res) => {
   try {
     const { userId } = req.params;
+    const adminId = req.user.id; // Get admin ID for logging
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
 
@@ -237,7 +256,8 @@ const liftUserRestriction = async (req, res) => {
       where: { id: userId },
       data: {
         isRestricted: false,
-        restrictionLiftedAt: new Date(),
+        restrictedAt: null,
+        restrictedBy: null,
         restrictionReason: null,
       },
       select: {
@@ -252,9 +272,23 @@ const liftUserRestriction = async (req, res) => {
     await sendMail({
       email: user.email,
       subject: "Your Account Restriction Has Been Lifted - Fixora",
-      template: userRestrictionLiftedEmailTemplate({
-        userName: user.name,
-      }),
+      template: userRestrictionLiftedEmailTemplate({ userName: user.name }),
+    });
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "USER_UNRESTRICTED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        targetUserId: userId,
+        targetUserName: user.name,
+        targetUserEmail: user.email,
+      },
+      req,
+      targetId: userId,
+      targetType: "user",
+      description: `Unrestricted user ${user.name} (${user.email})`,
     });
 
     res.status(200).json({
@@ -455,6 +489,23 @@ const approveBusiness = async (req, res) => {
       }),
     });
 
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "BUSINESS_APPROVED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        businessId: businessId,
+        businessName: business.businessName,
+        providerId: business.user.id,
+        providerName: business.user.name,
+      },
+      req,
+      targetId: businessId,
+      targetType: "business",
+      description: `Approved business ${business.businessName} for provider ${business.user.name}`,
+    });
+
     res.status(200).json({
       success: true,
       message: "Business approved successfully",
@@ -520,6 +571,24 @@ const rejectBusiness = async (req, res) => {
         businessName: business.businessName,
         reason: reason,
       }),
+    });
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "BUSINESS_REJECTED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        businessId: businessId,
+        businessName: business.businessName,
+        providerId: business.user.id,
+        providerName: business.user.name,
+        reason: reason,
+      },
+      req,
+      targetId: businessId,
+      targetType: "business",
+      description: `Rejected business ${business.businessName} for provider ${business.user.name}`,
     });
 
     res.status(200).json({
@@ -863,6 +932,25 @@ const restrictService = async (req, res) => {
       },
     });
 
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: adminId,
+        actorType: req.user.role,
+        actionType: "SERVICE_RESTRICTED",
+        status: "SUCCESS",
+        metadata: {
+          serviceId: serviceId,
+          serviceName: service.name,
+          businessId: service.businessProfile.id,
+          businessName: service.businessProfile.businessName,
+          providerId: service.businessProfile.user.id,
+          providerName: service.businessProfile.user.name,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
+
     // Send notification email
     await sendMail({
       email: service.businessProfile.user.email,
@@ -936,6 +1024,25 @@ const liftServiceRestriction = async (req, res) => {
             },
           },
         },
+      },
+    });
+
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: adminId,
+        actorType: req.user.role,
+        actionType: "SERVICE_RESTRICTION_LIFTED",
+        status: "SUCCESS",
+        metadata: {
+          serviceId: serviceId,
+          serviceName: service.name,
+          businessId: service.businessProfile.id,
+          businessName: service.businessProfile.businessName,
+          providerId: service.businessProfile.user.id,
+          providerName: service.businessProfile.user.name,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
       },
     });
 
@@ -1172,7 +1279,7 @@ const getDashboardAnalytics = async (req, res) => {
 const getUserActivityLogs = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { page = 1, limit = 20, actionType } = req.query;
+    const { page = 1, limit = 20, actionType, status } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const take = parseInt(limit);
@@ -1197,6 +1304,9 @@ const getUserActivityLogs = async (req, res) => {
       const where = {};
       if (actionType && actionType !== "all") {
         where.actionType = actionType;
+      }
+      if (status && status !== "all") {
+        where.status = status;
       }
       return where;
     };
@@ -1267,6 +1377,7 @@ const getUserActivityLogs = async (req, res) => {
       success: true,
       data: {
         logs: formattedLogs,
+        total: total, // Add total here for easy frontend access
         user: {
           id: user.id,
           name: user.name,
@@ -1318,6 +1429,18 @@ const getActivityDescription = (log, user) => {
     SLOT_GENERATED: `Generated time slots`,
     BOOKING_UPDATED: `Updated booking status${
       metadata?.bookingStatus ? ` to ${metadata.bookingStatus}` : ""
+    }`,
+    USER_RESTRICTED: `Restricted user${
+      metadata?.targetUserName ? ` ${metadata.targetUserName}` : ""
+    }`,
+    USER_UNRESTRICTED: `Unrestricted user${
+      metadata?.targetUserName ? ` ${metadata.targetUserName}` : ""
+    }`,
+    BUSINESS_APPROVED: `Approved business${
+      metadata?.businessName ? ` ${metadata.businessName}` : ""
+    }`,
+    BUSINESS_REJECTED: `Rejected business${
+      metadata?.businessName ? ` ${metadata.businessName}` : ""
     }`,
   };
 
