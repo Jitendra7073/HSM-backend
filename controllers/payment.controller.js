@@ -537,10 +537,7 @@ const cancelSubscription = async (req, res) => {
         actionType: "SUBSCRIPTION_CANCELLED",
         status: "SUCCESS",
         metadata: {
-          subscriptionType: "PROVIDER",
-          isTrial: isTrial ? "true" : "false",
-          providerName: provider.name,
-          businessName: provider.businessProfile.businessName,
+          subscription: subscription,
         },
         ipAddress: req.ip,
         userAgent: req.get("user-agent"),
@@ -597,10 +594,7 @@ const userBillingPortal = async (req, res) => {
         actionType: "BILLING_PORTAL_GENERATED",
         status: "SUCCESS",
         metadata: {
-          subscriptionType: "PROVIDER",
-          isTrial: isTrial ? "true" : "false",
-          providerName: provider.name,
-          businessName: provider.businessProfile.businessName,
+          subscription: subscription,
         },
         ipAddress: req.ip,
         userAgent: req.get("user-agent"),
