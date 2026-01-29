@@ -31,20 +31,6 @@ function consoleLog(level, message, meta = {}) {
   const reset = "\x1b[0m";
 
   const coloredMessage = `${colors[level] || ""}${logMessage}${reset}`;
-
-  // Log to console
-  switch (level) {
-    case LogLevel.ERROR:
-      console.error(coloredMessage, meta);
-      break;
-    case LogLevel.WARN:
-      console.warn(coloredMessage, meta);
-      break;
-    case LogLevel.DEBUG:
-    case LogLevel.INFO:
-    default:
-      console.log(coloredMessage, meta);
-  }
 }
 
 function extractRequestMetadata(req) {

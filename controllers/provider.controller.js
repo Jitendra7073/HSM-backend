@@ -556,9 +556,11 @@ const createService = async (req, res) => {
       select: {
         providerSubscription: {
           select: {
+            status: true, // Fetch status
             plan: {
               select: {
                 name: true,
+                maxServices: true,
               },
             },
           },
@@ -596,29 +598,28 @@ const createService = async (req, res) => {
       });
     }
 
-    // Limit check — a provider can only create 5 services
-    const providerPlan = user?.providerSubscription?.plan?.name.toLowerCase();
+    // Dynamic Limit Check
+    const subscription = user.providerSubscription;
+    let maxServices = 3; // FREE PLAN LIMIT (Default)
+
+    if (
+      subscription &&
+      (subscription.status === "active" || subscription.status === "trialing")
+    ) {
+      if (subscription.plan && subscription.plan.maxServices !== undefined) {
+        maxServices = subscription.plan.maxServices;
+      }
+    }
 
     const existingServiceCount = await prisma.Service.count({
       where: { businessProfileId: business.id },
     });
 
-    const isLimitedPlan = !["premimum", "pro"].includes(providerPlan);
-
-    if (isLimitedPlan && existingServiceCount >= 2) {
-      return res.status(507).json({
+    if (maxServices !== -1 && existingServiceCount >= maxServices) {
+      return res.status(403).json({
         success: false,
-        msg: "Upgrade your plan to add more services.",
+        msg: `Plan limit reached. You can only create ${maxServices} services. Please upgrade your plan.`,
       });
-    }
-
-    if (providerPlan === "premimum") {
-      if (existingServiceCount >= 5) {
-        return res.status(507).json({
-          success: false,
-          msg: "Upgrade your plan to add more services.",
-        });
-      }
     }
 
     // Prevent duplicate service names under the same business
@@ -653,12 +654,7 @@ const createService = async (req, res) => {
         actionType: "SERVICE_CREATED",
         status: "SUCCESS",
         metadata: {
-          serviceId: newService.id,
-          serviceName: newService.name,
-          serviceCategoryId: newService.serviceCategoryId,
-          serviceCategoryName: serviceCategory.name,
-          servicePhoneNumber: newService.phoneNumber,
-          serviceContactEmail: newService.contactEmail,
+          newService,
         },
         ipAddress: req.ip,
         userAgent: req.get("user-agent"),
@@ -1530,6 +1526,7 @@ const getDashboardStats = async (req, res) => {
                 price: true,
                 currency: true,
                 interval: true,
+                features: true,
               },
             },
             currentPeriodStart: true,
@@ -1761,9 +1758,19 @@ const getAllFeedbacks = async (req, res) => {
 /* ---------------- SERVICE FEEDBACK ---------------- */
 const getAllSubscriptionPlans = async (req, res) => {
   try {
-    const plans = await prisma.ProviderSubscriptionPlan.findMany();
+    const plans = await prisma.ProviderSubscriptionPlan.findMany({
+      where: {
+        isActive: true,
+      },
+    });
+
     return res.status(200).json({ success: true, plans });
-  } catch (error) {}
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      msg: "Error: while fetching the subscription plans.",
+    });
+  }
 };
 
 /* ---------------- SERVICE FEEDBACK ---------------- */

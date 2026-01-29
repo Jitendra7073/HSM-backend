@@ -47,4 +47,17 @@ route.get("/dashboard/analytics", AdminController.getDashboardAnalytics);
 /* ------------------ ACTIVITY LOGS ROUTE ------------------ */
 route.get("/users/:userId/activity-logs", AdminController.getUserActivityLogs);
 
+/* ------------------ PLAN MANAGEMENT ROUTES ------------------ */
+route.post("/plans", AdminController.createSubscriptionPlan);
+route.get("/plans", AdminController.getAllSubscriptionPlans);
+route.put("/plans/:planId", AdminController.updateSubscriptionPlan);
+route.delete("/plans/:planId", AdminController.deleteSubscriptionPlan);
+
+/* ------------------ SUBSCRIPTION MANAGEMENT ROUTES ------------------ */
+route.get("/subscriptions", AdminController.getAllSubscriptions);
+route.patch(
+  "/subscriptions/:subscriptionId/cancel",
+  AdminController.cancelUserSubscription,
+);
+
 module.exports = route;

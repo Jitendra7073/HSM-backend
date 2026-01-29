@@ -310,17 +310,23 @@ model Feedback {
 }
 
 model ProviderSubscriptionPlan {
-  id            String   @id @default(uuid())
-  name          String
-  price         Int
-  currency      String   @default("INR")
-  interval      String
-  stripePriceId String   @unique
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(uuid())
+  name            String
+  price           Int
+  currency        String   @default("INR")
+  interval        String
+  stripePriceId   String   @unique
+  trialPeriodDays Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   subscriptions ProviderSubscription[]
+  // New fields for limits & features
+  maxServices   Int                    @default(5)
+  maxBookings   Int                    @default(100)
+  benefits      String[]
+  features      Json? // Stores { allowedPages: [], allowedGraphs: [], ... }
 }
 
 model ProviderSubscription {

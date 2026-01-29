@@ -45,6 +45,59 @@ const customerPayment = async (req, res) => {
       });
     }
 
+    /* ---------- PLAN LIMIT CHECK (MAX BOOKINGS) ---------- */
+    const targetBusinessId = businessIds[0];
+    const targetBusiness = await prisma.businessProfile.findUnique({
+      where: { id: targetBusinessId },
+      select: {
+        user: {
+          select: {
+            id: true,
+            providerSubscription: {
+              select: {
+                status: true,
+                plan: { select: { maxBookings: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (targetBusiness) {
+      const sub = targetBusiness.user.providerSubscription;
+      let limit = 20; // Default Limit for Free/No Plan (Strict default)
+
+      if (
+        sub &&
+        (sub.status === "active" || sub.status === "trialing") &&
+        sub.plan
+      ) {
+        limit = sub.plan.maxBookings;
+      }
+
+      // Check limit if not unlimited (-1)
+      if (limit !== -1) {
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        const currentBookingsCount = await prisma.booking.count({
+          where: {
+            businessProfileId: targetBusinessId,
+            createdAt: { gte: startOfMonth },
+            bookingStatus: { not: "CANCELLED" }, // Count all non-cancelled bookings
+          },
+        });
+
+        if (currentBookingsCount + dbCart.length > limit) {
+          return res.status(403).json({
+            msg: `Order Failed: The service provider has reached their monthly booking limit (${limit}). Please contact them or try again next month.`,
+          });
+        }
+      }
+    }
+
     /* ---------- DUPLICATE BOOKING CHECK ---------- */
     const alreadyBooked = await prisma.booking.findFirst({
       where: {
@@ -303,16 +356,83 @@ const providerSubscriptionCheckout = async (req, res) => {
       cancel_url: `${process.env.FRONTEND_PROVIDER_CANCEL_URL}`,
     };
 
-    if (provider.providerSubscription?.stripeCustomerId) {
+    if (
+      provider.providerSubscription?.stripeCustomerId &&
+      provider.providerSubscription.stripeCustomerId.startsWith("cus_")
+    ) {
       sessionConfig.customer = provider.providerSubscription.stripeCustomerId;
     } else {
       sessionConfig.customer_email = provider.email;
     }
 
-    // Add 7-day free trial if requested
+    // Add free trial if requested (use Plan config, default to 7 if not set)
+    const plan = await prisma.providerSubscriptionPlan.findUnique({
+      where: { stripePriceId: priceId },
+    });
+
+    // --- CHECK FOR FREE PLAN (BYPASS STRIPE) ---
+    if (plan && plan.price === 0) {
+      // Upsert subscription directly in DB
+      await prisma.providerSubscription.upsert({
+        where: { userId },
+        update: {
+          planId: plan.id,
+          status: "active",
+          stripeSubscriptionId: `free_plan_${Date.now()}`, // Dummy ID to satisfy Unique constraint if any, or logic
+          stripeCustomerId:
+            provider.providerSubscription?.stripeCustomerId ||
+            `free_cust_${userId}`,
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: new Date(
+            new Date().setFullYear(new Date().getFullYear() + 100),
+          ), // Indefinite
+          cancelAtPeriodEnd: false,
+          isActive: true,
+        },
+        create: {
+          userId,
+          planId: plan.id,
+          status: "active",
+          stripeSubscriptionId: `free_plan_${Date.now()}`,
+          stripeCustomerId: `free_cust_${userId}`,
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: new Date(
+            new Date().setFullYear(new Date().getFullYear() + 100),
+          ),
+          isActive: true,
+        },
+      });
+
+      await prisma.providerAdminActivityLog.create({
+        data: {
+          actorId: userId,
+          actorType: req.user.role,
+          actionType: "SUBSCRIPTION_INITIATED",
+          status: "SUCCESS",
+          metadata: {
+            subscriptionType: "PROVIDER",
+            isFreePlan: "true",
+            providerName: provider.name,
+            businessName: provider.businessProfile.businessName,
+          },
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent"),
+        },
+      });
+
+      return res
+        .status(200)
+        .json({ url: process.env.FRONTEND_PROVIDER_SUCCESS_URL });
+    }
+    // -------------------------------------------
+
     if (isTrial) {
+      const trialDays =
+        plan?.trialPeriodDays && plan.trialPeriodDays > 0
+          ? plan.trialPeriodDays
+          : 7;
       sessionConfig.subscription_data = {
-        trial_period_days: 7,
+        trial_period_days: trialDays,
         trial_settings: {
           end_behavior: {
             missing_payment_method: "cancel",
@@ -481,6 +601,13 @@ const cancelSubscription = async (req, res) => {
       });
     }
 
+    if (subscription.stripeSubscriptionId.startsWith("free_plan_")) {
+      return res.status(400).json({
+        success: false,
+        msg: "Free plan does not require cancellation.",
+      });
+    }
+
     const stripeSubscription = await stripe.subscriptions.update(
       subscription.stripeSubscriptionId,
       {
@@ -579,6 +706,13 @@ const userBillingPortal = async (req, res) => {
       return res
         .status(400)
         .json({ success: false, msg: "Stripe subscription ID missing" });
+    }
+
+    if (subscription.stripeCustomerId.startsWith("free_cust_")) {
+      return res.status(400).json({
+        success: false,
+        msg: "Free plan does not have a billing portal.",
+      });
     }
 
     const session = await stripe.billingPortal.sessions.create({

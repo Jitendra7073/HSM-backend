@@ -1,7 +1,20 @@
 const prisma = require("../prismaClient");
 const Joi = require("joi");
+const Stripe = require("stripe");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const { sendMail } = require("../utils/sendmail");
+const bcrypt = require("bcrypt");
 const { logProviderAdminActivity, LogStatus } = require("../utils/logger");
+const { storeNotification } = require("./notification.controller");
+
+// Helper to verify admin password
+const verifyAdminPassword = async (adminId, password) => {
+  if (!password) return false;
+  const admin = await prisma.user.findUnique({ where: { id: adminId } });
+  if (!admin || !admin.password) return false;
+  const isValid = await bcrypt.compare(password, admin.password);
+  return isValid;
+};
 
 // Joi schema for restriction reason
 const restrictReasonSchema = Joi.object({
@@ -20,6 +33,7 @@ const {
   businessRestrictionLiftedEmailTemplate,
   serviceRestrictionEmailTemplate,
   serviceRestrictionLiftedEmailTemplate,
+  providerSubscriptionCancelledEmailTemplate,
 } = require("../helper/mail-tamplates/adminEmailTemplates");
 
 /* --------------- USER MANAGEMENT --------------- */
@@ -1449,31 +1463,522 @@ const getActivityDescription = (log, user) => {
   );
 };
 
+/* --------------- PLAN MANAGEMENT --------------- */
+
+// Helper schema for plan
+// Helper schema for plan
+const planSchema = Joi.object({
+  name: Joi.string().required(),
+  price: Joi.number().min(0).required(),
+  interval: Joi.string().valid("month", "year").required(),
+  trialPeriodDays: Joi.number().min(0).optional(),
+  active: Joi.boolean().optional(),
+  password: Joi.string().required(),
+  maxServices: Joi.number().integer().min(-1).default(5),
+  maxBookings: Joi.number().integer().min(-1).default(100),
+  benefits: Joi.array().items(Joi.string()).default([]),
+  features: Joi.object().optional().default({}),
+});
+
+const updatePlanSchema = Joi.object({
+  name: Joi.string().optional(),
+  price: Joi.number().min(0).optional(),
+  trialPeriodDays: Joi.number().min(0).optional(),
+  isActive: Joi.boolean().optional(),
+  password: Joi.string().required(),
+  maxServices: Joi.number().integer().min(-1).optional(),
+  maxBookings: Joi.number().integer().min(-1).optional(),
+  benefits: Joi.array().items(Joi.string()).optional(),
+  features: Joi.object().optional(),
+});
+
+// Create Plan
+const createSubscriptionPlan = async (req, res) => {
+  try {
+    const { error } = planSchema.validate(req.body);
+    if (error) {
+      return res
+        .status(400)
+        .json({ success: false, message: error.details[0].message });
+    }
+
+    const {
+      name,
+      price,
+      interval,
+      trialPeriodDays = 0,
+      active = true,
+      password,
+      maxServices = 5,
+      maxBookings = 100,
+      benefits = [],
+      features = {},
+    } = req.body;
+    const adminId = req.user.id;
+
+    // Verify Password
+    const isPasswordValid = await verifyAdminPassword(adminId, password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid password. Action denied.",
+      });
+    }
+
+    // 1. Create Product in Stripe
+    const product = await stripe.products.create({
+      name: name,
+      active: active,
+    });
+
+    // 2. Create Price in Stripe
+    const stripePrice = await stripe.prices.create({
+      product: product.id,
+      unit_amount: price * 100, // Convert to smallest currency unit (paise)
+      currency: "inr",
+      recurring: { interval: interval },
+    });
+
+    // 3. Create Plan in DB
+    const plan = await prisma.providerSubscriptionPlan.create({
+      data: {
+        name,
+        price,
+        interval,
+        stripePriceId: stripePrice.id,
+        trialPeriodDays,
+        isActive: active,
+        maxServices,
+        maxBookings,
+        benefits,
+        features,
+      },
+    });
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "PLAN_CREATED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        planName: name,
+        price,
+        interval,
+        trialPeriodDays,
+        stripePriceId: stripePrice.id,
+      },
+      req,
+      targetId: plan.id,
+      targetType: "plan",
+      description: `Created subscription plan: ${name}`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Subscription plan created successfully",
+      data: plan,
+    });
+  } catch (error) {
+    console.error("Error creating plan:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Get All Plans
+const getAllSubscriptionPlans = async (req, res) => {
+  try {
+    const plans = await prisma.providerSubscriptionPlan.findMany({
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: {
+          select: { subscriptions: true },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: plans,
+    });
+  } catch (error) {
+    console.error("Error fetching plans:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Update Plan
+const updateSubscriptionPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { error } = updatePlanSchema.validate(req.body);
+    if (error) {
+      return res
+        .status(400)
+        .json({ success: false, message: error.details[0].message });
+    }
+
+    const {
+      name,
+      price,
+      isActive,
+      trialPeriodDays,
+      password,
+      maxServices,
+      maxBookings,
+      benefits,
+      features,
+    } = req.body;
+    const adminId = req.user.id;
+
+    // Verify Password
+    const isPasswordValid = await verifyAdminPassword(adminId, password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid password. Action denied.",
+      });
+    }
+
+    const existingPlan = await prisma.providerSubscriptionPlan.findUnique({
+      where: { id: planId },
+    });
+
+    if (!existingPlan) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Plan not found" });
+    }
+
+    // Retrieve Stripe Price to get Product ID
+    const existingStripePrice = await stripe.prices.retrieve(
+      existingPlan.stripePriceId,
+    );
+    const productId = existingStripePrice.product;
+
+    let newStripePriceId = existingPlan.stripePriceId;
+
+    // 1. Update Product Name if changed
+    if (name && name !== existingPlan.name) {
+      await stripe.products.update(productId, { name });
+    }
+
+    // 2. Handle Price Change (Create New Price)
+    if (price && price !== existingPlan.price) {
+      const newPrice = await stripe.prices.create({
+        product: productId,
+        unit_amount: price * 100,
+        currency: "inr",
+        recurring: { interval: existingPlan.interval },
+      });
+      newStripePriceId = newPrice.id;
+
+      // Note: We don't archive the old price immediately as users might be on it.
+    }
+
+    // 3. Update Stripe Product Active Status
+    if (typeof isActive === "boolean") {
+      await stripe.products.update(productId, { active: isActive });
+    }
+
+    // 4. Update DB
+    const updatedPlan = await prisma.providerSubscriptionPlan.update({
+      where: { id: planId },
+      data: {
+        name,
+        price,
+        isActive,
+        trialPeriodDays,
+        stripePriceId: newStripePriceId,
+        maxServices,
+        maxBookings,
+        benefits,
+        features,
+      },
+    });
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "PLAN_UPDATED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        planId,
+        updates: req.body,
+        newStripePriceId,
+      },
+      req,
+      targetId: planId,
+      targetType: "plan",
+      description: `Updated plan ${existingPlan.name}`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Plan updated successfully",
+      data: updatedPlan,
+    });
+  } catch (error) {
+    console.error("Error updating plan:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* --------------- SUBSCRIPTION MANAGEMENT --------------- */
+
+const getAllSubscriptions = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search, status } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = {};
+    if (status && status !== "all")
+      where.status = { equals: status, mode: "insensitive" };
+    if (search) {
+      where.OR = [
+        { user: { name: { contains: search, mode: "insensitive" } } },
+        { user: { email: { contains: search, mode: "insensitive" } } },
+        { stripeSubscriptionId: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    const [subscriptions, total] = await Promise.all([
+      prisma.providerSubscription.findMany({
+        where,
+        skip,
+        take,
+        include: {
+          user: {
+            select: { id: true, name: true, email: true },
+          },
+          plan: {
+            select: { id: true, name: true, price: true, currency: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.providerSubscription.count({ where }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: subscriptions,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching subscriptions:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const cancelUserSubscription = async (req, res) => {
+  try {
+    const { subscriptionId } = req.params;
+    const { password, reason } = req.body;
+    const adminId = req.user.id;
+
+    // Verify Password
+    const isPasswordValid = await verifyAdminPassword(adminId, password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid password. Action denied.",
+      });
+    }
+
+    const sub = await prisma.providerSubscription.findUnique({
+      where: { id: subscriptionId },
+    });
+
+    if (!sub) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Subscription not found" });
+    }
+
+    // Cancel in Stripe (skip if free plan or fake ID)
+    if (
+      sub.stripeSubscriptionId &&
+      !sub.stripeSubscriptionId.startsWith("free_plan_") &&
+      !sub.stripeSubscriptionId.startsWith("sub_fake")
+    ) {
+      try {
+        await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+      } catch (err) {
+        console.warn(
+          "Stripe cancel failed (might be already canceled):",
+          err.message,
+        );
+      }
+    }
+
+    // Update DB
+    const updatedSub = await prisma.providerSubscription.update({
+      where: { id: subscriptionId },
+      data: {
+        status: "canceled",
+        // question: "Canceled by Admin", // Using metadata/logs instead
+        cancelAtPeriodEnd: false,
+        isActive: false,
+      },
+      include: {
+        user: true,
+        plan: true,
+      },
+    });
+
+    // Send Email & Notification
+    try {
+      if (updatedSub.user && updatedSub.user.email) {
+        await sendMail({
+          email: updatedSub.user.email,
+          subject: "Subscription Cancelled by Admin",
+          template: providerSubscriptionCancelledEmailTemplate({
+            userName: updatedSub.user.name,
+            planName: updatedSub.plan ? updatedSub.plan.name : "Plan",
+            reason: reason || "Administrative decision",
+          }),
+        });
+      }
+
+      await storeNotification(
+        "Subscription Cancelled",
+        `Your subscription has been cancelled by the admin. Reason: ${
+          reason || "Administrative decision"
+        }`,
+        updatedSub.userId,
+      );
+    } catch (notifyErr) {
+      console.error("Error sending cancellation notification:", notifyErr);
+    }
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "SUBSCRIPTION_CANCELED",
+      status: LogStatus.SUCCESS,
+      metadata: {
+        subscriptionId,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        reason: reason,
+      },
+      req,
+      targetId: subscriptionId,
+      targetType: "subscription",
+      description: `Canceled subscription for user. Reason: ${reason}`,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Subscription canceled successfully",
+      data: updatedSub,
+    });
+  } catch (error) {
+    console.error("Error canceling subscription:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const deleteSubscriptionPlan = async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const { password, migrateToPlanId } = req.body;
+    const adminId = req.user.id;
+
+    // Verify Password
+    const isPasswordValid = await verifyAdminPassword(adminId, password);
+    if (!isPasswordValid)
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid password. Action denied." });
+
+    const allSubCount = await prisma.providerSubscription.count({
+      where: { planId },
+    });
+
+    if (allSubCount > 0) {
+      if (!migrateToPlanId) {
+        return res.status(409).json({
+          success: false,
+          message: "Plan has subscribers",
+          data: { count: allSubCount },
+        });
+      }
+
+      if (planId === migrateToPlanId) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Cannot migrate to same plan" });
+      }
+
+      const targetPlan = await prisma.providerSubscriptionPlan.findUnique({
+        where: { id: migrateToPlanId },
+      });
+      if (!targetPlan)
+        return res
+          .status(400)
+          .json({ success: false, message: "Migration plan not found" });
+
+      // Migrate
+      await prisma.providerSubscription.updateMany({
+        where: { planId },
+        data: { planId: migrateToPlanId },
+      });
+    }
+
+    // Delete
+    await prisma.providerSubscriptionPlan.delete({ where: { id: planId } });
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: "PLAN_DELETED",
+      status: LogStatus.SUCCESS,
+      metadata: { planId, migratedSubs: allSubCount, migrateToPlanId },
+      req,
+      targetId: planId,
+      targetType: "plan",
+      description: `Deleted plan. Migrated ${allSubCount} users.`,
+    });
+
+    res
+      .status(200)
+      .json({ success: true, message: "Plan deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting plan:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
-  // User Management
   getAllUsers,
   getUserById,
   restrictUser,
   liftUserRestriction,
-
-  // Business Management
   getAllBusinesses,
   getBusinessById,
   approveBusiness,
   rejectBusiness,
   restrictBusiness,
   liftBusinessRestriction,
-
-  // Service Management
   getAllServices,
   getServiceById,
   restrictService,
   liftServiceRestriction,
-
-  // Dashboard
   getDashboardStats,
   getDashboardAnalytics,
-
-  // Activity Logs
   getUserActivityLogs,
+  // Plans
+  createSubscriptionPlan,
+  getAllSubscriptionPlans,
+  updateSubscriptionPlan,
+  deleteSubscriptionPlan,
+  // Subscriptions
+  getAllSubscriptions,
+  cancelUserSubscription,
 };
