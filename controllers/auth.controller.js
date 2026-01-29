@@ -98,6 +98,36 @@ const register = async (req, res) => {
 
     res.cookie("refreshToken", refreshToken, refreshCookieOptions);
 
+    // --- ASSIGN FREE PLAN IF PROVIDER ---
+    if (value.role === "provider") {
+      try {
+        const freePlan = await prisma.providerSubscriptionPlan.findFirst({
+          where: { price: 0, isActive: true },
+        });
+
+        if (freePlan) {
+          await prisma.providerSubscription.create({
+            data: {
+              userId: user.id,
+              planId: freePlan.id,
+              status: "active",
+              stripeSubscriptionId: `free_plan_${Date.now()}`,
+              stripeCustomerId: `free_cust_${user.id}`,
+              currentPeriodStart: new Date(),
+              currentPeriodEnd: new Date(
+                new Date().setFullYear(new Date().getFullYear() + 100),
+              ), // 100 years
+              cancelAtPeriodEnd: false,
+              isActive: true,
+            },
+          });
+        }
+      } catch (planErr) {
+        console.error("Failed to assign default free plan:", planErr);
+      }
+    }
+    // ------------------------------------
+
     res.status(201).json({
       success: true,
       message: "User registered successfully",
@@ -248,6 +278,42 @@ const login = async (req, res) => {
 
     res.cookie("accessToken", accessToken, cookieOptions);
     res.cookie("refreshToken", refreshToken, refreshCookieOptions);
+
+    // --- AUTO-ASSIGN FREE PLAN IF MISSING (PROVIDER) ---
+    if (user.role === "provider") {
+      try {
+        const subscription = await prisma.providerSubscription.findUnique({
+          where: { userId: user.id },
+        });
+
+        if (!subscription) {
+          const freePlan = await prisma.providerSubscriptionPlan.findFirst({
+            where: { price: 0, isActive: true },
+          });
+
+          if (freePlan) {
+            await prisma.providerSubscription.create({
+              data: {
+                userId: user.id,
+                planId: freePlan.id,
+                status: "active",
+                stripeSubscriptionId: `free_plan_${Date.now()}`,
+                stripeCustomerId: `free_cust_${user.id}`,
+                currentPeriodStart: new Date(),
+                currentPeriodEnd: new Date(
+                  new Date().setFullYear(new Date().getFullYear() + 100),
+                ), // 100 years
+                cancelAtPeriodEnd: false,
+                isActive: true,
+              },
+            });
+          }
+        }
+      } catch (planErr) {
+        console.error("Failed to auto-assign free plan on login:", planErr);
+      }
+    }
+    // ---------------------------------------------------
 
     // Log successful login to database for admin tracking
     await logUserActivity({
