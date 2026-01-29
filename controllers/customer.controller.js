@@ -85,7 +85,6 @@ const getAllProviders = async (req, res) => {
                 averageRating: true,
                 reviewCount: true,
               },
-              take: 5, // Limit to first 5 services per provider
             },
           },
         },
@@ -97,7 +96,6 @@ const getAllProviders = async (req, res) => {
             state: true,
             type: true,
           },
-          take: 1, // Limit to primary address
         },
       },
       orderBy: {

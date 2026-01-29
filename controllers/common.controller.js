@@ -29,6 +29,8 @@ const getUserProfile = async (req, res) => {
                 price: true,
                 currency: true,
                 interval: true,
+                maxServices: true,
+                maxBookings: true,
               },
             },
             currentPeriodStart: true,
