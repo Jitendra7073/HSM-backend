@@ -205,7 +205,7 @@ const checkAuthToken = () => {
         ) {
           console.error(
             "Token verification failed (no refresh token):",
-            error.name
+            error.name,
           );
         }
       }

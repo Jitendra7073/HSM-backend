@@ -17,11 +17,19 @@ route
   .get(checkAuthToken(), commonRoutes.getAddress)
   .post(checkAuthToken(), commonRoutes.addAddress);
 
-route.delete("/address/:addressId",checkAuthToken(), commonRoutes.deleteAddress);
+route.delete(
+  "/address/:addressId",
+  checkAuthToken(),
+  commonRoutes.deleteAddress,
+);
 
 /* ---------------- BUSINESS CATEGORY ROUTE ---------------- */
 route
   .route("/business-category")
   .get(checkAuthToken(), ProviderController.getAllBusinessCategory);
+
+/* ---------------- CONTENT ROUTE ---------------- */
+const ContentController = require("../controllers/content.controller");
+route.get("/content/:key", ContentController.getContent);
 
 module.exports = route;

@@ -28,7 +28,9 @@ const storeFcmTokenService = async ({ userId, token }) => {
 
     return {
       created: false,
-      message: isSameUser ? "Device already registered" : "Device re-linked to user",
+      message: isSameUser
+        ? "Device already registered"
+        : "Device re-linked to user",
     };
   }
 
@@ -99,6 +101,7 @@ const getAllReceivedNotifications = async (req, res) => {
   try {
     const notifications = await prisma.notification.findMany({
       where: { receiverId: userId, read: false },
+      orderBy: { createdAt: "desc" },
     });
     return res.status(200).json({
       success: true,

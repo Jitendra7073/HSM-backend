@@ -60,4 +60,11 @@ route.patch(
   AdminController.cancelUserSubscription,
 );
 
+/* ------------------ REVENUE & FINANCIALS ROUTES ------------------ */
+route.get("/revenue", AdminController.getRevenueStats);
+
+/* ------------------ CONTENT MANAGEMENT ROUTES ------------------ */
+const ContentController = require("../controllers/content.controller");
+route.put("/content/:key", ContentController.updateContent);
+
 module.exports = route;

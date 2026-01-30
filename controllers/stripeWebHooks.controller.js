@@ -40,9 +40,9 @@ const stripeWebhookHandler = async (req, res) => {
       const session = event.data.object;
 
       if (session.mode === "subscription") {
-        await handleProviderSubscriptionCompleted(session);
+        await handleProviderSubscriptionCompleted(session, req);
       } else {
-        await handleCheckoutCompleted(session);
+        await handleCheckoutCompleted(session, req);
       }
     }
 
@@ -50,11 +50,11 @@ const stripeWebhookHandler = async (req, res) => {
       event.type === "customer.subscription.updated" ||
       event.type === "customer.subscription.deleted"
     ) {
-      await handleProviderSubscriptionUpdated(event.data.object);
+      await handleProviderSubscriptionUpdated(event.data.object, req);
     }
 
     if (event.type === "payment_intent.payment_failed") {
-      await handlePaymentFailed(event.data.object);
+      await handlePaymentFailed(event.data.object, req);
     }
 
     return res.json({ received: true });
@@ -66,7 +66,7 @@ const stripeWebhookHandler = async (req, res) => {
 
 /* --------------------------- CUSTOMER PAYMENT SUCCESS --------------------------- */
 
-const handleCheckoutCompleted = async (session) => {
+const handleCheckoutCompleted = async (session, req) => {
   const { userId, addressId, paymentId, bookingIds, dbCart } =
     session.metadata || {};
 
@@ -154,20 +154,48 @@ const handleCheckoutCompleted = async (session) => {
                 gt: new Date(),
               },
             },
+            include: {
+              businessProfile: {
+                include: {
+                  user: {
+                    include: {
+                      providerSubscription: {
+                        include: {
+                          plan: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
           });
 
           if (!booking) {
             throw new Error(`Booking ${bookingId} expired or not found`);
           }
 
-          // Confirm the booking
+          // Calculate Dynamic Fee
+          let commissionRate = 10;
+          const plan =
+            booking.businessProfile?.user?.providerSubscription?.plan;
+
+          if (plan?.commissionRate !== undefined) {
+            commissionRate = plan.commissionRate;
+          }
+
+          const fee = Math.round(booking.totalAmount * (commissionRate / 100));
+          const earning = booking.totalAmount - fee;
+
           const confirmed = await tx.booking.update({
             where: { id: booking.id },
             data: {
               paymentStatus: "PAID",
               bookingStatus: "CONFIRMED",
-              paymentLink: null, // Clear payment link since payment is complete
-              expiresAt: null, // Remove expiration
+              paymentLink: null,
+              expiresAt: null,
+              platformFee: fee,
+              providerEarnings: earning,
             },
           });
 
@@ -185,32 +213,18 @@ const handleCheckoutCompleted = async (session) => {
           },
         });
 
-        // create log
-        await prisma.customerActivityLog.create({
-          data: {
-            customerId: userId,
-            actionType: "BOOKING_CREATED",
-            status: "SUCCESS",
-            metadata: {
-              paymentId: paymentId,
-              bookingIds: JSON.stringify(confirmedBookings.map((b) => b.id)),
-            },
-            ipAddress: req.ip,
-            userAgent: req.get("user-agent"),
-          },
-        });
         // Clear cart
         await tx.cart.deleteMany({
           where: { id: { in: cartIds }, userId },
         });
 
         await tx.customerPayment.deleteMany({
-          where: { status: "PENDING" },
+          where: { status: "PENDING", userId },
         });
         return confirmedBookings;
       },
       {
-        timeout: 10000,
+        timeout: 50000,
       },
     );
     if (!result || result.length === 0) {
@@ -367,6 +381,26 @@ const handleCheckoutCompleted = async (session) => {
     } catch (err) {
       console.error("Customer notification error:", err.message);
     }
+
+    // create log
+    await prisma.customerActivityLog.create({
+      data: {
+        customerId: userId,
+        actionType: "BOOKING_CREATED",
+        status: "SUCCESS",
+        metadata: {
+          paymentId: paymentId,
+          services: cart.map((c) => ({
+            title: c.service.name,
+            price: c.service.price,
+            bookingDate: c.date,
+            slotTime: c.slot ? c.slot.time : "Not Assigned",
+          })),
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
+      },
+    });
   } catch (error) {
     console.error("Error in handleCheckoutCompleted:", error.message);
   }
@@ -374,7 +408,7 @@ const handleCheckoutCompleted = async (session) => {
 
 /* ----------------------- PROVIDER SUBSCRIPTION SUCCESS ----------------------- */
 
-const handleProviderSubscriptionCompleted = async (session) => {
+const handleProviderSubscriptionCompleted = async (session, req) => {
   const { userId, subscriptionType, isTrial, providerName, businessName } =
     session.metadata || {};
   if (!userId || subscriptionType !== "PROVIDER") {
@@ -389,6 +423,7 @@ const handleProviderSubscriptionCompleted = async (session) => {
       email: true,
       mobile: true,
       addresses: true,
+      role: true,
     },
   });
 
@@ -470,7 +505,7 @@ const handleProviderSubscriptionCompleted = async (session) => {
   await prisma.providerAdminActivityLog.create({
     data: {
       actorId: userId,
-      actorType: req.user.role,
+      actorType: provider.role,
       actionType: "SUBSCRIPTION_ACTIVATED",
       status: "SUCCESS",
       metadata: {
@@ -581,7 +616,7 @@ const handleProviderSubscriptionCompleted = async (session) => {
 
 /* ------------------------ PROVIDER SUBSCRIPTION UPDATE / CANCEL ------------------------ */
 
-const handleProviderSubscriptionUpdated = async (subscription) => {
+const handleProviderSubscriptionUpdated = async (subscription, req) => {
   const periodEndUnix =
     subscription.status === "trialing"
       ? subscription.trial_end
@@ -607,23 +642,36 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
     },
   });
 
+  const userId = currentDbSub?.userId;
+
+  let actorType = "PROVIDER";
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (user) actorType = user.role;
+  }
+
   // create log
-  await prisma.providerAdminActivityLog.create({
-    data: {
-      actorId: userId,
-      actorType: req.user.role,
-      actionType: "SUBSCRIPTION_UPDATED",
-      status: "SUCCESS",
-      metadata: {
-        status: subscription.status,
-        currentPeriodEnd: new Date(periodEndUnix * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        cancelAt: subscription.cancel_at,
+  if (userId) {
+    await prisma.providerAdminActivityLog.create({
+      data: {
+        actorId: userId,
+        actorType: actorType,
+        actionType: "SUBSCRIPTION_UPDATED",
+        status: "SUCCESS",
+        metadata: {
+          status: subscription.status,
+          currentPeriodEnd: new Date(periodEndUnix * 1000),
+          cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          cancelAt: subscription.cancel_at,
+        },
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent"),
       },
-      ipAddress: req.ip,
-      userAgent: req.get("user-agent"),
-    },
-  });
+    });
+  }
 
   if (isNewlyCancelled && currentDbSub) {
     const user = await prisma.user.findUnique({
@@ -666,8 +714,8 @@ const handleProviderSubscriptionUpdated = async (subscription) => {
 
 /* ------------------------- CUSTOMER PAYMENT FAILED ------------------------- */
 
-const handlePaymentFailed = async (intent) => {
-  const { userId, addressId, paymentId, dbCart } = session.metadata || {};
+const handlePaymentFailed = async (intent, req) => {
+  const { userId, addressId, paymentId, dbCart } = intent.metadata || {};
   if (!userId || !addressId || !paymentId || !dbCart) return;
 
   const cartIds = JSON.parse(dbCart);
@@ -676,8 +724,8 @@ const handlePaymentFailed = async (intent) => {
     where: { id: paymentId },
     data: { status: "FAILED" },
   });
-  await tx.customerPayment.deleteMany({
-    where: { status: "PENDING" },
+  await prisma.customerPayment.deleteMany({
+    where: { status: "PENDING", userId },
   });
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -703,7 +751,7 @@ const handlePaymentFailed = async (intent) => {
   await prisma.providerAdminActivityLog.create({
     data: {
       actorId: userId,
-      actorType: req.user.role,
+      actorType: user.role,
       actionType: "PAYMENT_FAILED",
       status: "SUCCESS",
       metadata: {

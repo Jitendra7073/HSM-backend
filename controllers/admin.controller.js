@@ -1476,6 +1476,7 @@ const planSchema = Joi.object({
   password: Joi.string().required(),
   maxServices: Joi.number().integer().min(-1).default(5),
   maxBookings: Joi.number().integer().min(-1).default(100),
+  commissionRate: Joi.number().min(0).max(100).default(10.0),
   benefits: Joi.array().items(Joi.string()).default([]),
   features: Joi.object().optional().default({}),
 });
@@ -1488,6 +1489,7 @@ const updatePlanSchema = Joi.object({
   password: Joi.string().required(),
   maxServices: Joi.number().integer().min(-1).optional(),
   maxBookings: Joi.number().integer().min(-1).optional(),
+  commissionRate: Joi.number().min(0).max(100).optional(),
   benefits: Joi.array().items(Joi.string()).optional(),
   features: Joi.object().optional(),
 });
@@ -1511,6 +1513,7 @@ const createSubscriptionPlan = async (req, res) => {
       password,
       maxServices = 5,
       maxBookings = 100,
+      commissionRate = 10.0,
       benefits = [],
       features = {},
     } = req.body;
@@ -1550,6 +1553,7 @@ const createSubscriptionPlan = async (req, res) => {
         isActive: active,
         maxServices,
         maxBookings,
+        commissionRate,
         benefits,
         features,
       },
@@ -1565,6 +1569,7 @@ const createSubscriptionPlan = async (req, res) => {
         price,
         interval,
         trialPeriodDays,
+        commissionRate,
         stripePriceId: stripePrice.id,
       },
       req,
@@ -1625,6 +1630,7 @@ const updateSubscriptionPlan = async (req, res) => {
       password,
       maxServices,
       maxBookings,
+      commissionRate,
       benefits,
       features,
     } = req.body;
@@ -1691,6 +1697,7 @@ const updateSubscriptionPlan = async (req, res) => {
         stripePriceId: newStripePriceId,
         maxServices,
         maxBookings,
+        commissionRate,
         benefits,
         features,
       },
@@ -1955,6 +1962,144 @@ const deleteSubscriptionPlan = async (req, res) => {
   }
 };
 
+// Get Revenue Stats
+const getRevenueStats = async (req, res) => {
+  try {
+    // 1. Calculate Total Commission from Booking Platform Fees
+    const bookingRevenue = await prisma.booking.aggregate({
+      _sum: {
+        platformFee: true,
+      },
+      where: {
+        bookingStatus: { in: ["CONFIRMED", "COMPLETED"] },
+        paymentStatus: "PAID",
+      },
+    });
+
+    // 2. Calculate Total Provider Earnings (for reference)
+    const providerEarnings = await prisma.booking.aggregate({
+      _sum: {
+        providerEarnings: true,
+      },
+      where: {
+        bookingStatus: { in: ["CONFIRMED", "COMPLETED"] },
+        paymentStatus: "PAID",
+      },
+    });
+
+    // 3. Calculate Subscription Revenue (Estimate based on active subscriptions * Plan Price)
+    // In a real-world scenario, you would query a Payment/Invoice table.
+    // Here we will sum the price of all active subscriptions (recurring monthly value)
+    const activeSubscriptions = await prisma.providerSubscription.findMany({
+      where: {
+        isActive: true,
+        status: { in: ["active", "trialing"] },
+      },
+      include: {
+        plan: true,
+      },
+    });
+
+    const subscriptionMRR = activeSubscriptions.reduce((acc, sub) => {
+      // Only count paid plans not in trial (or count trial as potential) - counting only active paid for revenue
+      if (sub.status === "active" && sub.plan.price > 0) {
+        return acc + sub.plan.price;
+      }
+      return acc;
+    }, 0);
+
+    // 4. Revenue Breakdown (Last 6 Months)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+    sixMonthsAgo.setDate(1); // Start of month
+
+    // Fetch relevant bookings
+    const recentBookings = await prisma.booking.findMany({
+      where: {
+        bookingStatus: { in: ["CONFIRMED", "COMPLETED"] },
+        paymentStatus: "PAID",
+        createdAt: { gte: sixMonthsAgo },
+      },
+      select: {
+        createdAt: true,
+        platformFee: true,
+      },
+    });
+
+    // Fetch all subscriptions for historical estimation
+    const allSubscriptions = await prisma.providerSubscription.findMany({
+      include: { plan: true },
+    });
+
+    const months = [];
+    for (let i = 0; i < 6; i++) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (5 - i));
+      const monthName = d.toLocaleString("default", { month: "short" });
+      const monthYear = d.getFullYear(); // For comparison
+      const monthIndex = d.getMonth();
+
+      months.push({ name: monthName, monthIndex, year: monthYear });
+    }
+
+    const revenueBreakdown = months.map((m) => {
+      // Platform Fees for Month m
+      const monthlyContextBookings = recentBookings.filter((b) => {
+        const d = new Date(b.createdAt);
+        return d.getMonth() === m.monthIndex && d.getFullYear() === m.year;
+      });
+      const platformFees = monthlyContextBookings.reduce(
+        (sum, b) => sum + (b.platformFee || 0),
+        0,
+      );
+
+      // Subscription Revenue for Month m (Estimate)
+      const monthlySubs = allSubscriptions.filter((s) => {
+        const created = new Date(s.createdAt || s.currentPeriodStart);
+
+        const createdDate = new Date(created);
+        const endOfMonth = new Date(m.year, m.monthIndex + 1, 0);
+
+        if (createdDate > endOfMonth) return false;
+        if (s.status === "cancelled") return false;
+
+        return s.plan.price > 0;
+      });
+
+      const subscriptionRevenue = monthlySubs.reduce(
+        (sum, s) => sum + s.plan.price,
+        0,
+      );
+
+      return {
+        month: m.name,
+        platformFees,
+        subscriptionRevenue,
+      };
+    });
+
+    // 5. Total Bookings Count
+    const totalBookings = await prisma.booking.count({
+      where: { bookingStatus: { in: ["CONFIRMED", "COMPLETED"] } },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalCommission: bookingRevenue._sum.platformFee || 0,
+        totalProviderEarnings: providerEarnings._sum.providerEarnings || 0,
+        monthlyRecurringRevenue: subscriptionMRR,
+        totalBookings,
+        activeSubscriptions: activeSubscriptions.length,
+        revenueBreakdown, // Added
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching revenue stats:", error);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
@@ -1981,4 +2126,5 @@ module.exports = {
   // Subscriptions
   getAllSubscriptions,
   cancelUserSubscription,
+  getRevenueStats,
 };

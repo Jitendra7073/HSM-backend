@@ -177,6 +177,16 @@ model Slot {
   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
 }
 
+model SiteContent {
+  id        String   @id @default(uuid())
+  key       String   @unique // about_us, privacy_policy, terms_conditions
+  title     String
+  content   String   @db.Text
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Booking {
   id                 String        @id @default(uuid())
   userId             String
@@ -185,6 +195,8 @@ model Booking {
   businessProfileId  String
   slotId             String?
   totalAmount        Int
+  platformFee        Int?          @default(0) // New: 10% fee
+  providerEarnings   Int?          @default(0) // New: 90% earnings
   paymentStatus      PaymentStatus @default(PENDING)
   bookingStatus      BookingStatus @default(PENDING)
   date               String
@@ -321,12 +333,13 @@ model ProviderSubscriptionPlan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  subscriptions ProviderSubscription[]
+  subscriptions  ProviderSubscription[]
   // New fields for limits & features
-  maxServices   Int                    @default(5)
-  maxBookings   Int                    @default(100)
-  benefits      String[]
-  features      Json? // Stores { allowedPages: [], allowedGraphs: [], ... }
+  maxServices    Int                    @default(5)
+  maxBookings    Int                    @default(100)
+  commissionRate Float                  @default(10.0) // New: Platform fee percentage for this plan
+  benefits       String[]
+  features       Json? // Stores { allowedPages: [], allowedGraphs: [], ... }
 }
 
 model ProviderSubscription {

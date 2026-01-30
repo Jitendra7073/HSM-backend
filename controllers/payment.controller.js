@@ -482,6 +482,7 @@ const seedProviderSubscriptionPlans = async (req, res) => {
           interval: "month",
           stripePriceId: "price_1SgOSs9gg6uXWvhmXeL1WqvB",
           isActive: true,
+          commissionRate: 10.0,
         },
         {
           name: "PRO",
@@ -490,6 +491,7 @@ const seedProviderSubscriptionPlans = async (req, res) => {
           interval: "year",
           stripePriceId: "price_1SgOTU9gg6uXWvhmtApjtiLp",
           isActive: true,
+          commissionRate: 5.0, // Discounted rate for Pro
         },
       ],
       skipDuplicates: true,

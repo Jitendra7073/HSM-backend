@@ -1348,9 +1348,16 @@ const bookingList = async (req, res) => {
           name: true,
         },
       },
+      slot: {
+        select: {
+          time: true,
+        },
+      },
       bookingStatus: true,
       paymentStatus: true,
       totalAmount: true,
+      providerEarnings: true,
+      platformFee: true,
       createdAt: true,
       date: true,
       createdAt: true,
@@ -1579,6 +1586,8 @@ const getDashboardStats = async (req, res) => {
         serviceId: true,
         bookingStatus: true,
         totalAmount: true,
+        providerEarnings: true, // Added
+        platformFee: true, // Added
         createdAt: true,
       },
     });
@@ -1601,10 +1610,42 @@ const getDashboardStats = async (req, res) => {
 
     const totalCustomers = new Set(allBookings.map((b) => b.userId)).size;
 
+    // Helper to get the correct earning amount
+    const getEarningAmount = (b) => {
+      // If providerEarnings is set (even if 0), use it.
+      // But we need to be careful of default(0).
+      // If platformFee is > 0, then providerEarnings should be accurate.
+      // If platformFee is 0/null and providerEarnings is 0/null, then it's likely a pre-fee booking or a 0 price booking.
+      // Easiest logic: use providerEarnings ?? totalAmount.
+      // However, if providerEarnings is 0 because of default, but totalAmount is 100, we shouldn't use 0.
+      // Schema says @default(0).
+      // Let's assume if platformFee is > 0, providerEarnings is valid.
+      // Or if providerEarnings > 0, it is valid.
+      // If both are 0, and totalAmount > 0, then it's likely an old record -> use totalAmount.
+
+      if (b.providerEarnings !== null && b.providerEarnings > 0) {
+        return b.providerEarnings;
+      }
+
+      // If fee is computed as 0 (free plan?) and earnings are same as total.
+      // If providerEarnings is 0 and totalAmount is 0, it's 0.
+      if (b.providerEarnings === 0 && b.totalAmount === 0) return 0;
+
+      // If providerEarnings is 0 but totalAmount is > 0
+      // Check if platformFee is set.
+      if (b.platformFee !== null && b.platformFee > 0) {
+        // If fee is set but earnings are 0... weird unless fee = totalAmount.
+        return b.providerEarnings;
+      }
+
+      // Fallback for old records where providerEarnings might be 0/null but shouldn't be.
+      return b.totalAmount || 0;
+    };
+
     // Calculate Earnings based on status
     const earningsBreakdown = allBookings.reduce(
       (acc, b) => {
-        const amount = b.totalAmount || 0;
+        const amount = getEarningAmount(b);
         const status = b.bookingStatus.toLowerCase();
 
         if (status === "completed") {
@@ -1618,14 +1659,22 @@ const getDashboardStats = async (req, res) => {
           acc.potential += amount;
           acc.total += amount;
         } else if (status === "cancelled" || status === "cancel_requested") {
-          acc.lost += amount;
+          // Check if there's a cancellation fee retained as earnings
+          if (b.providerEarnings !== null && b.providerEarnings > 0) {
+            acc.realized += b.providerEarnings;
+            acc.total += b.providerEarnings;
+            acc.cancellationFee += b.providerEarnings;
+          } else {
+            acc.lost += amount;
+          }
         }
         return acc;
       },
-      { realized: 0, potential: 0, lost: 0, total: 0 },
+      { realized: 0, potential: 0, lost: 0, total: 0, cancellationFee: 0 },
     );
 
     const totalEarnings = earningsBreakdown.total;
+    const totalCancellationFee = earningsBreakdown.cancellationFee;
 
     const monthlyMap = {};
 
@@ -1635,7 +1684,7 @@ const getDashboardStats = async (req, res) => {
       const month = date.toLocaleString("default", { month: "short" });
       const year = date.getFullYear();
       const sortKey = year * 12 + monthIndex;
-      const amount = booking.totalAmount || 0;
+      const amount = getEarningAmount(booking);
       const status = booking.bookingStatus.toLowerCase();
 
       if (!monthlyMap[sortKey]) {
@@ -1668,16 +1717,45 @@ const getDashboardStats = async (req, res) => {
       if (!booking.serviceId) return;
 
       if (!serviceBookingMap[booking.serviceId]) {
-        serviceBookingMap[booking.serviceId] = 0;
+        serviceBookingMap[booking.serviceId] = {
+          confirmed: 0,
+          completed: 0,
+          cancelled: 0,
+          total: 0,
+        };
       }
-      serviceBookingMap[booking.serviceId] += 1;
+
+      const status = booking.bookingStatus.toLowerCase();
+      const stats = serviceBookingMap[booking.serviceId];
+
+      if (status === "confirmed") {
+        stats.confirmed += 1;
+        stats.total += 1;
+      } else if (status === "completed") {
+        stats.completed += 1;
+        stats.total += 1;
+      } else if (status === "cancelled" || status === "cancel_requested") {
+        stats.cancelled += 1;
+        stats.total += 1;
+      }
     });
 
     const serviceBookingStats = services
-      .map((service) => ({
-        service: service.name,
-        totalBookings: serviceBookingMap[service.id] || 0,
-      }))
+      .map((service) => {
+        const stats = serviceBookingMap[service.id] || {
+          confirmed: 0,
+          completed: 0,
+          cancelled: 0,
+          total: 0,
+        };
+        return {
+          service: service.name,
+          confirmed: stats.confirmed,
+          completed: stats.completed,
+          cancelled: stats.cancelled,
+          totalBookings: stats.total,
+        };
+      })
       .sort((a, b) => b.totalBookings - a.totalBookings)
       .slice(0, 5);
 
@@ -1701,6 +1779,7 @@ const getDashboardStats = async (req, res) => {
       bookings: bookingsData,
       totalCustomers,
       totalEarnings, // This is now (Realized + Potential)
+      totalCancellationFee,
       monthlyAnalysis,
       serviceBookingStats,
     });

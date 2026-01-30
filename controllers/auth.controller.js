@@ -116,7 +116,7 @@ const register = async (req, res) => {
               currentPeriodStart: new Date(),
               currentPeriodEnd: new Date(
                 new Date().setFullYear(new Date().getFullYear() + 100),
-              ), // 100 years
+              ),
               cancelAtPeriodEnd: false,
               isActive: true,
             },
@@ -126,7 +126,6 @@ const register = async (req, res) => {
         console.error("Failed to assign default free plan:", planErr);
       }
     }
-    // ------------------------------------
 
     res.status(201).json({
       success: true,
