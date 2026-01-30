@@ -61,7 +61,7 @@ function userRestrictionEmailTemplate({ userName, reason }) {
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -127,7 +127,7 @@ function userRestrictionLiftedEmailTemplate({ userName }) {
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -217,7 +217,7 @@ function businessApprovalEmailTemplate({ providerName, businessName }) {
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -290,7 +290,7 @@ function businessRestrictionEmailTemplate({
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -359,7 +359,7 @@ function businessRestrictionLiftedEmailTemplate({
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -434,7 +434,7 @@ function serviceRestrictionEmailTemplate({
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -505,7 +505,7 @@ function serviceRestrictionLiftedEmailTemplate({
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -577,7 +577,7 @@ function businessRejectionEmailTemplate({
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>
@@ -648,7 +648,7 @@ function providerSubscriptionCancelledEmailTemplate({
 
     <!-- Footer -->
     <div style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-      © ${new Date().getFullYear()} Fixora. All rights reserved.
+      © ${new Date().getFullYear()} HomHelpers. All rights reserved.
     </div>
 
   </div>

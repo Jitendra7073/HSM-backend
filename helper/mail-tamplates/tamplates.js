@@ -9,7 +9,7 @@ function welcomeUserTamplate(userName) {
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Welcome to Fixora</title>
+  <title>Welcome to HomHelpers</title>
 </head>
 
 <body
@@ -44,7 +44,7 @@ function welcomeUserTamplate(userName) {
     </p>
 
     <p style="margin:0 0 16px 0; font-size:14px; line-height:1.6;">
-      Welcome to <strong>Fixora</strong>. Your account has been successfully created.
+      Welcome to <strong>HomHelpers</strong>. Your account has been successfully created.
       You can now book verified professionals for home services such as repairs,
       maintenance, and cleaning.
     </p>
@@ -78,10 +78,10 @@ function welcomeUserTamplate(userName) {
 
     <p style="margin:0; font-size:13px;">
       <a
-        href="mailto:Fixora@support.com"
+        href="mailto:HomHelpers@support.com"
         style="color:#2563eb; text-decoration:none;"
       >
-        Fixora@support.com
+        HomHelpers@support.com
       </a>
     </p>
 
@@ -166,7 +166,7 @@ const forgotPasswordTamplate = (name, token) => {
 
   <!-- Footer -->
   <footer style="padding:24px 32px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-    © ${new Date().getFullYear()} Fixora. All rights reserved.
+    © ${new Date().getFullYear()} HomHelpers. All rights reserved.
   </footer>
 
 </body>
@@ -305,7 +305,7 @@ function bookingSuccessEmailTemplate({
                         <td style="padding:8px 0;">${service.slotTime}</td>
                         <td style="padding:8px 0; text-align:right;">₹${service.price}</td>
                       </tr>
-                    `
+                    `,
                     )
                     .join("")}
                 </tbody>
@@ -322,8 +322,8 @@ function bookingSuccessEmailTemplate({
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:Fixora@supportEmail.com" style="color:#2563eb; text-decoration:none;">
-                  Fixora@supportEmail.com
+                <a href="mailto:HomHelpers@supportEmail.com" style="color:#2563eb; text-decoration:none;">
+                  HomHelpers@supportEmail.com
                 </a>
               </p>
 
@@ -437,7 +437,7 @@ function bookingFailedEmailTemplate({ userName, services, businessName }) {
                         <td style="padding:8px 0;">${service.slotTime}</td>
                         <td style="padding:8px 0; text-align:right;">₹${service.price}</td>
                       </tr>
-                    `
+                    `,
                     )
                     .join("")}
                 </tbody>
@@ -453,8 +453,8 @@ function bookingFailedEmailTemplate({ userName, services, businessName }) {
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:Fixora@supportEmail.com" style="color:#2563eb; text-decoration:none;">
-                  Fixora@supportEmail.com
+                <a href="mailto:HomHelpers@supportEmail.com" style="color:#2563eb; text-decoration:none;">
+                  HomHelpers@supportEmail.com
                 </a>
               </p>
 
@@ -602,9 +602,9 @@ function providerSubscriptionSuccessEmailTemplate({
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:Fixora@support.com"
+                <a href="mailto:HomHelpers@support.com"
                    style="color:#2563eb; text-decoration:none;">
-                  Fixora@support.com
+                  HomHelpers@support.com
                 </a>
               </p>
 
@@ -741,9 +741,9 @@ function providerTrialStartedEmailTemplate({
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:Fixora@support.com"
+                <a href="mailto:HomHelpers@support.com"
                    style="color:#2563eb; text-decoration:none;">
-                  Fixora@support.com
+                  HomHelpers@support.com
                 </a>
               </p>
 
@@ -832,9 +832,9 @@ function providerSubscriptionCancelledEmailTemplate({ userName, endDate }) {
               </p>
 
               <p style="margin:6px 0 0; font-size:13px;">
-                <a href="mailto:Fixora@support.com"
+                <a href="mailto:HomHelpers@support.com"
                    style="color:#2563eb; text-decoration:none;">
-                  Fixora@support.com
+                  HomHelpers@support.com
                 </a>
               </p>
 
@@ -844,7 +844,7 @@ function providerSubscriptionCancelledEmailTemplate({ userName, endDate }) {
           <!-- Footer -->
           <tr>
             <td style="padding:16px 24px; border-top:1px solid #e5e7eb; font-size:12px; color:#6b7280;">
-              © ${new Date().getFullYear()} Fixora. All rights reserved.
+              © ${new Date().getFullYear()} HomHelpers. All rights reserved.
             </td>
           </tr>
 
