@@ -31,6 +31,7 @@ const getUserProfile = async (req, res) => {
                 interval: true,
                 maxServices: true,
                 maxBookings: true,
+                commissionRate: true,
               },
             },
             currentPeriodStart: true,

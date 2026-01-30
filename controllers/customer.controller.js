@@ -571,6 +571,9 @@ const cancelBooking = async (req, res) => {
           bookingStatus: "CANCELLED",
           paymentStatus:
             booking.paymentStatus === "PAID" ? "REFUNDED" : "CANCELLED",
+          providerEarnings:
+            booking.paymentStatus === "PAID" ? cancellationFee : 0,
+          platformFee: 0,
         },
       });
     });
