@@ -22,6 +22,7 @@ route
 route.get("/staff", ProviderController.getStaffMembers);
 route.get("/staff-status", ProviderController.getStaffStatusTracking);
 route.get("/staff/:staffId", ProviderController.getStaffMemberById);
+route.get("/staff/:staffId/details", ProviderController.getStaffDetailsForProvider);
 route.get("/staff/:staffId/bookings", ProviderController.getStaffBookings);
 route.patch("/staff/:staffId/status", ProviderController.updateStaffStatus);
 route.post("/staff/:staffId/unlink", ProviderController.unlinkStaffMember);

@@ -725,6 +725,46 @@ const updateBookingTrackingStatus = async (req, res) => {
       },
     });
 
+    // 5.1 Auto-update staff availability based on service status
+    const activeServiceStatuses = [
+      "BOOKING_STARTED",
+      "PROVIDER_ON_THE_WAY",
+      "SERVICE_STARTED",
+    ];
+
+    if (activeServiceStatuses.includes(status)) {
+      // Set staff to BUSY when they start a service
+      await prisma.user.update({
+        where: { id: staffId },
+        data: { availability: "BUSY" },
+      });
+    } else if (status === "COMPLETED") {
+      // Set staff to AVAILABLE when they complete the service
+      // But first check if they have any other active bookings
+      const otherActiveBookings = await prisma.booking.findFirst({
+        where: {
+          id: { not: bookingId },
+          StaffAssignBooking: {
+            some: {
+              assignedStaffId: staffId,
+            },
+          },
+          bookingStatus: "CONFIRMED",
+          trackingStatus: {
+            in: activeServiceStatuses,
+          },
+        },
+      });
+
+      // Only set to AVAILABLE if no other active bookings
+      if (!otherActiveBookings) {
+        await prisma.user.update({
+          where: { id: staffId },
+          data: { availability: "AVAILABLE" },
+        });
+      }
+    }
+
     // 6. Send Notifications to Customer AND Provider
     const messageMap = {
       BOOKING_STARTED: isEarlyStart
@@ -928,7 +968,7 @@ const getStaffDetailsForProvider = async (req, res) => {
       });
     }
 
-    // Get staff basic info
+    // Get staff basic info with availability
     const staff = await prisma.user.findUnique({
       where: { id: staffId },
       select: {
@@ -938,6 +978,7 @@ const getStaffDetailsForProvider = async (req, res) => {
         mobile: true,
         createdAt: true,
         isRestricted: true,
+        availability: true,
       },
     });
 
@@ -948,7 +989,7 @@ const getStaffDetailsForProvider = async (req, res) => {
       });
     }
 
-    // Get all bookings for this staff under this provider's business
+    // Get all bookings for this staff under this provider's business with full details
     const allBookings = await prisma.booking.findMany({
       where: {
         businessProfileId: staffAssignment.businessProfileId,
@@ -958,15 +999,40 @@ const getStaffDetailsForProvider = async (req, res) => {
           },
         },
       },
-      select: {
-        id: true,
-        bookingStatus: true,
-        trackingStatus: true,
-        staffPaymentStatus: true,
-        totalAmount: true,
-        staffEarnings: true,
-        date: true,
-        createdAt: true,
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            durationInMinutes: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+          },
+        },
+        slot: {
+          select: {
+            id: true,
+            time: true,
+          },
+        },
+        address: {
+          select: {
+            id: true,
+            street: true,
+            city: true,
+            state: true,
+            postalCode: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
       },
     });
 
@@ -993,11 +1059,14 @@ const getStaffDetailsForProvider = async (req, res) => {
       )
       .reduce((sum, b) => sum + (b.staffEarnings || 0), 0);
 
-    // Get staff feedback (received by this staff)
+    // Get staff feedback (received by this staff) for this business only
     const staffFeedbacks = await prisma.feedback.findMany({
       where: {
         staffId: staffId,
         feedbackType: "STAFF",
+        booking: {
+          businessProfileId: staffAssignment.businessProfileId,
+        },
       },
       orderBy: { createdAt: "desc" },
       take: 20,
@@ -1025,6 +1094,20 @@ const getStaffDetailsForProvider = async (req, res) => {
       completionRate * 0.6 + ratingScore * 0.4,
     );
 
+    // Check if staff is currently busy (has active booking)
+    const activeBookings = allBookings.filter((b) => {
+      return (
+        b.bookingStatus === "CONFIRMED" &&
+        ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"].includes(
+          b.trackingStatus,
+        )
+      );
+    });
+
+    const isBusy =
+      staff.availability === "BUSY" || activeBookings.length > 0;
+    const currentBooking = isBusy ? activeBookings[0] : null;
+
     return res.status(200).json({
       success: true,
       msg: "Staff details fetched successfully.",
@@ -1032,6 +1115,15 @@ const getStaffDetailsForProvider = async (req, res) => {
         ...staff,
         businessName: staffAssignment.businessProfile.businessName,
         joinedAt: staffAssignment.createdAt,
+        availability: isBusy ? "BUSY" : "AVAILABLE",
+        currentBooking: currentBooking
+          ? {
+              service: currentBooking.service.name,
+              customer: currentBooking.user.name,
+              time: currentBooking.slot?.time,
+              date: currentBooking.date,
+            }
+          : null,
         performance: {
           totalBookings,
           completedBookings,
@@ -1045,6 +1137,8 @@ const getStaffDetailsForProvider = async (req, res) => {
           feedbackCount: staffFeedbacks.length,
         },
         recentFeedbacks: staffFeedbacks.slice(0, 5),
+        recentActivity: allBookings.slice(0, 10), // Recent 10 bookings
+        bookingHistory: allBookings, // All bookings for history
       },
     });
   } catch (error) {
@@ -1106,7 +1200,7 @@ const getAllBusinessStaffs = async (req, res) => {
 
 const updateStaffProfile = async (req, res) => {
   const staffId = req.user.id;
-  const { name, email, mobile, profilePicture } = req.body;
+  const { name, email, mobile } = req.body;
 
   try {
     // Validate required fields
@@ -1154,14 +1248,12 @@ const updateStaffProfile = async (req, res) => {
         name,
         email,
         mobile,
-        ...(profilePicture && { profilePicture }),
       },
       select: {
         id: true,
         name: true,
         email: true,
         mobile: true,
-        profilePicture: true,
         role: true,
         createdAt: true,
       },
@@ -1308,6 +1400,48 @@ const getStaffProfile = async (req, res) => {
   }
 };
 
+const updateStaffAvailability = async (req, res) => {
+  const staffId = req.user.id;
+  const { availability } = req.body;
+
+  try {
+    // Validate availability value
+    const validAvailability = ["AVAILABLE", "BUSY"];
+    if (!validAvailability.includes(availability)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid availability status. Must be AVAILABLE or BUSY",
+      });
+    }
+
+    // Update staff availability
+    const updatedStaff = await prisma.user.update({
+      where: { id: staffId },
+      data: {
+        availability: availability,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        availability: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: "Availability updated successfully.",
+      staff: updatedStaff,
+    });
+  } catch (error) {
+    console.error("updateStaffAvailability error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not update availability.",
+    });
+  }
+};
+
 module.exports = {
   getAllProviders,
   getStaffApplications,
@@ -1318,6 +1452,7 @@ module.exports = {
   getDashboardStats,
   getStaffProfile,
   updateStaffProfile,
+  updateStaffAvailability,
   updateBookingTrackingStatus,
   getAllBusinessStaffs,
   getStaffDetailsForProvider,

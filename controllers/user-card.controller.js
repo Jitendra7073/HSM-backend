@@ -1,6 +1,6 @@
 const prisma = require("../prismaClient");
 const {
-  StaffCardDetailsValidation,
+  CardDetailsValidation,
 } = require("../helper/validation/card.validation");
 const {
   encrypt,
@@ -13,12 +13,12 @@ const {
 /**
  * Add card details for staff
  */
-const addStaffCardDetails = async (req, res) => {
-  const staffId = req.user.id;
+const addUserCardDetails = async (req, res) => {
+  const userId = req.user.id;
 
   try {
     // Validate input
-    const { error, value } = StaffCardDetailsValidation.validate(req.body);
+    const { error, value } = CardDetailsValidation.validate(req.body);
 
     if (error) {
       return res.status(400).json({
@@ -57,8 +57,8 @@ const addStaffCardDetails = async (req, res) => {
 
     // If isDefault is true, unset default on all other cards
     if (isDefault) {
-      await prisma.staffCardDetails.updateMany({
-        where: { userId: staffId },
+      await prisma.userCardDetails.updateMany({
+        where: { userId: userId },
         data: { isDefault: false },
       });
     }
@@ -68,9 +68,9 @@ const addStaffCardDetails = async (req, res) => {
     const encryptedCVV = encrypt(cvv);
 
     // Save card details
-    const cardDetails = await prisma.staffCardDetails.create({
+    const cardDetails = await prisma.userCardDetails.create({
       data: {
-        userId: staffId,
+        userId: userId,
         cardholderName,
         lastFourDigits: cardNumber,
         expiryMonth,
@@ -97,7 +97,7 @@ const addStaffCardDetails = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("addStaffCardDetails error:", error);
+    console.error("addUserCardDetails error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not save card details",
@@ -109,13 +109,13 @@ const addStaffCardDetails = async (req, res) => {
 /**
  * Get all card details for staff
  */
-const getStaffCardDetails = async (req, res) => {
-  const staffId = req.user.id;
+const getUserCardDetails = async (req, res) => {
+  const userId = req.user.id;
 
   try {
-    const cards = await prisma.staffCardDetails.findMany({
+    const cards = await prisma.userCardDetails.findMany({
       where: {
-        userId: staffId,
+        userId: userId,
         isActive: true,
       },
     });
@@ -134,7 +134,7 @@ const getStaffCardDetails = async (req, res) => {
       cards: safeCards,
     });
   } catch (error) {
-    console.error("getStaffCardDetails error:", error);
+    console.error("getUserCardDetails error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch card details",
@@ -146,16 +146,16 @@ const getStaffCardDetails = async (req, res) => {
 /**
  * Delete card details
  */
-const deleteStaffCardDetails = async (req, res) => {
-  const staffId = req.user.id;
+const deleteUserCardDetails = async (req, res) => {
+  const userId = req.user.id;
   const { cardId } = req.params;
 
   try {
     // Verify card belongs to this staff
-    const card = await prisma.staffCardDetails.findFirst({
+    const card = await prisma.userCardDetails.findFirst({
       where: {
         id: cardId,
-        userId: staffId,
+        userId: userId,
       },
     });
 
@@ -169,9 +169,9 @@ const deleteStaffCardDetails = async (req, res) => {
     // Check if this is the default card
     if (card.isDefault) {
       // Find another active card to set as default
-      const anotherCard = await prisma.staffCardDetails.findFirst({
+      const anotherCard = await prisma.userCardDetails.findFirst({
         where: {
-          userId: staffId,
+          userId: userId,
           isActive: true,
           id: { not: cardId },
         },
@@ -180,7 +180,7 @@ const deleteStaffCardDetails = async (req, res) => {
 
       // If another card exists, set it as default
       if (anotherCard) {
-        await prisma.staffCardDetails.update({
+        await prisma.userCardDetails.update({
           where: { id: anotherCard.id },
           data: { isDefault: true },
         });
@@ -188,7 +188,7 @@ const deleteStaffCardDetails = async (req, res) => {
     }
 
     // Soft delete (set isActive to false)
-    await prisma.staffCardDetails.update({
+    await prisma.userCardDetails.update({
       where: { id: cardId },
       data: { isActive: false },
     });
@@ -198,7 +198,7 @@ const deleteStaffCardDetails = async (req, res) => {
       msg: "Card deleted successfully",
     });
   } catch (error) {
-    console.error("deleteStaffCardDetails error:", error);
+    console.error("userCardDetails error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not delete card",
@@ -211,15 +211,15 @@ const deleteStaffCardDetails = async (req, res) => {
  * Set default card
  */
 const setDefaultCard = async (req, res) => {
-  const staffId = req.user.id;
+  const userId = req.user.id;
   const { cardId } = req.params;
 
   try {
     // Verify card belongs to this staff
-    const card = await prisma.staffCardDetails.findFirst({
+    const card = await prisma.userCardDetails.findFirst({
       where: {
         id: cardId,
-        userId: staffId,
+        userId: userId,
         isActive: true,
       },
     });
@@ -232,13 +232,13 @@ const setDefaultCard = async (req, res) => {
     }
 
     // Unset default on all cards
-    await prisma.staffCardDetails.updateMany({
-      where: { userId: staffId },
+    await prisma.userCardDetails.updateMany({
+      where: { userId: userId },
       data: { isDefault: false },
     });
 
     // Set this card as default
-    await prisma.staffCardDetails.update({
+    await prisma.userCardDetails.update({
       where: { id: cardId },
       data: { isDefault: true },
     });
@@ -260,8 +260,8 @@ const setDefaultCard = async (req, res) => {
 /**
  * Update card details
  */
-const updateStaffCardDetails = async (req, res) => {
-  const staffId = req.user.id;
+const updateUserCardDetails = async (req, res) => {
+  const userId = req.user.id;
   const { cardId } = req.params;
   const { cardholderName, expiryMonth, expiryYear, cardType } = req.body;
 
@@ -275,10 +275,10 @@ const updateStaffCardDetails = async (req, res) => {
     }
 
     // Verify card belongs to this staff
-    const card = await prisma.staffCardDetails.findFirst({
+    const card = await prisma.userCardDetails.findFirst({
       where: {
         id: cardId,
-        userId: staffId,
+        userId: userId,
         isActive: true,
       },
     });
@@ -310,7 +310,7 @@ const updateStaffCardDetails = async (req, res) => {
     }
 
     // Update card
-    const updatedCard = await prisma.staffCardDetails.update({
+    const updatedCard = await prisma.userCardDetails.update({
       where: { id: cardId },
       data: {
         cardholderName,
@@ -334,7 +334,7 @@ const updateStaffCardDetails = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("updateStaffCardDetails error:", error);
+    console.error("userCardDetails error:", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not update card details",
@@ -344,9 +344,9 @@ const updateStaffCardDetails = async (req, res) => {
 };
 
 module.exports = {
-  addStaffCardDetails,
-  getStaffCardDetails,
-  updateStaffCardDetails,
-  deleteStaffCardDetails,
+  addUserCardDetails,
+  getUserCardDetails,
+  updateUserCardDetails,
+  deleteUserCardDetails,
   setDefaultCard,
 };

@@ -12,6 +12,7 @@ const {
   teamMemberSchema,
 } = require("../helper/validation/provider.validation");
 const { storeNotification } = require("./notification.controller");
+const { PaymentStatus } = require("@prisma/client");
 
 /* ---------------- BUSINESS ---------------- */
 const createBusiness = async (req, res) => {
@@ -1311,6 +1312,8 @@ const bookingList = async (req, res) => {
         date: true,
         bookingStatus: true,
         staffPaymentStatus: true,
+        trackingStatus: true,
+        paymentStatus: true,
         totalAmount: true,
         cancellation: true,
         createdAt: true,
@@ -1367,6 +1370,8 @@ const bookingList = async (req, res) => {
       staffPaymentStatus: true,
       totalAmount: true,
       providerEarnings: true,
+      trackingStatus: true,
+      paymentStatus: true,
       platformFee: true,
       createdAt: true,
       date: true,
@@ -2122,13 +2127,50 @@ const assignBookingToProvider = async (req, res) => {
   const providerId = req.user.id;
 
   try {
-    const { bookingId, staffId } = req.body;
+    const { bookingId, staffId, staffPaymentType, staffPaymentValue } = req.body;
 
     if (!bookingId || !staffId) {
       return res.status(400).json({
         success: false,
         msg: "BookingId and StaffId are required",
       });
+    }
+
+    // Validate payment type and value
+    const validPaymentTypes = ["PERCENTAGE", "FIXED_AMOUNT"];
+    const paymentType = staffPaymentType || "PERCENTAGE"; // Default to PERCENTAGE
+
+    if (!validPaymentTypes.includes(paymentType)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid payment type. Must be PERCENTAGE or FIXED_AMOUNT",
+      });
+    }
+
+    let paymentValue = staffPaymentValue;
+
+    // Validate and set default payment value based on type
+    if (paymentValue === undefined || paymentValue === null || paymentValue === "") {
+      paymentValue = paymentType === "PERCENTAGE" ? 50 : 0; // Default 50% or 0 fixed amount
+    }
+
+    paymentValue = parseFloat(paymentValue);
+
+    // Additional validation based on payment type
+    if (paymentType === "PERCENTAGE") {
+      if (isNaN(paymentValue) || paymentValue < 0 || paymentValue > 100) {
+        return res.status(400).json({
+          success: false,
+          msg: "Percentage must be between 0 and 100",
+        });
+      }
+    } else if (paymentType === "FIXED_AMOUNT") {
+      if (isNaN(paymentValue) || paymentValue < 0) {
+        return res.status(400).json({
+          success: false,
+          msg: "Fixed amount must be a positive number",
+        });
+      }
     }
 
     // ----------------------------------
@@ -2208,7 +2250,100 @@ const assignBookingToProvider = async (req, res) => {
     }
 
     // ----------------------------------
-    // Create Assignment Record
+    // Check Staff Availability for Date/Time
+    // ----------------------------------
+    const bookingDetails = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        date: true,
+        slotId: true,
+        slot: {
+          select: {
+            id: true,
+            time: true,
+          },
+        },
+        service: {
+          select: {
+            id: true,
+            durationInMinutes: true,
+          },
+        },
+      },
+    });
+
+    // Find existing bookings for this staff at the same date/time
+    const existingBookings = await prisma.booking.findMany({
+      where: {
+        businessProfileId: booking.businessProfileId,
+        StaffAssignBooking: {
+          some: {
+            assignedStaffId: staffId,
+          },
+        },
+        date: bookingDetails.date,
+        id: { not: bookingId }, // Exclude the current booking
+      },
+      include: {
+        StaffAssignBooking: {
+          where: {
+            assignedStaffId: staffId,
+          },
+        },
+        slot: true,
+        service: true,
+      },
+    });
+
+    // Check for time conflicts
+    const hasConflict = existingBookings.some((existingBooking) => {
+      // Check if booking is not completed
+      const isNotCompleted =
+        existingBooking.bookingStatus !== "COMPLETED" &&
+        existingBooking.trackingStatus !== "COMPLETED";
+
+      // If completed, no conflict
+      if (!isNotCompleted) {
+        return false;
+      }
+
+      // Check time overlap
+      const newBookingTime = bookingDetails.slot?.time || "00:00";
+      const existingBookingTime = existingBooking.slot?.time || "00:00";
+
+      // Parse times to minutes for comparison
+      const parseTime = (time) => {
+        const [hours, minutes] = time.split(":").map(Number);
+        return hours * 60 + minutes;
+      };
+
+      const newStartTime = parseTime(newBookingTime);
+      const newDuration = bookingDetails.service?.durationInMinutes || 60;
+      const newEndTime = newStartTime + newDuration;
+
+      const existingStartTime = parseTime(existingBookingTime);
+      const existingDuration = existingBooking.service?.durationInMinutes || 60;
+      const existingEndTime = existingStartTime + existingDuration;
+
+      // Check for time overlap
+      return (
+        (newStartTime >= existingStartTime && newStartTime < existingEndTime) ||
+        (newEndTime > existingStartTime && newEndTime <= existingEndTime) ||
+        (newStartTime <= existingStartTime && newEndTime >= existingEndTime)
+      );
+    });
+
+    if (hasConflict) {
+      return res.status(409).json({
+        success: false,
+        msg: "Staff member is already assigned to another booking at this time. Please choose a different staff member or time slot.",
+        conflict: true,
+      });
+    }
+
+    // ----------------------------------
+    // Create Assignment Record with Payment Details
     // ----------------------------------
 
     const assignment = await prisma.staffAssignBooking.create({
@@ -2222,6 +2357,10 @@ const assignBookingToProvider = async (req, res) => {
         assignedStaffId: staffId,
 
         status: "PENDING",
+
+        // Staff payment configuration
+        staffPaymentType: paymentType,
+        staffPaymentValue: paymentValue,
       },
     });
 
@@ -2289,6 +2428,7 @@ const getStaffMembers = async (req, res) => {
             mobile: true,
             role: true,
             createdAt: true,
+            availability: true,
           },
         },
       },
@@ -2337,8 +2477,14 @@ const getStaffMembers = async (req, res) => {
           take: 1,
         });
 
-        const isBusy = activeBookings.length > 0;
-        const currentBooking = isBusy ? activeBookings[0] : null;
+        const hasActiveBooking = activeBookings.length > 0;
+        const currentBooking = hasActiveBooking ? activeBookings[0] : null;
+
+        // Use staff's manual availability status, but override to BUSY if they have an active booking
+        const availability =
+          app.staff.availability === "BUSY" || hasActiveBooking
+            ? "BUSY"
+            : "AVAILABLE";
 
         return {
           id: app.staffId, // Staff ID
@@ -2353,12 +2499,14 @@ const getStaffMembers = async (req, res) => {
           experience: 1, // Placeholder
           isActive: app.status === "APPROVED",
           status: app.status,
-          availability: isBusy ? "BUSY" : "AVAILABLE",
-          currentBooking: currentBooking ? {
-            service: currentBooking.service.name,
-            customer: currentBooking.user.name,
-            time: currentBooking.slot?.time,
-          } : null,
+          availability: availability,
+          currentBooking: currentBooking
+            ? {
+                service: currentBooking.service.name,
+                customer: currentBooking.user.name,
+                time: currentBooking.slot?.time,
+              }
+            : null,
           _count: { bookings: bookingCount },
         };
       }),
@@ -2534,9 +2682,10 @@ const getStaffMemberById = async (req, res) => {
       },
     });
 
-    const averageRating = reviews.length > 0
-      ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-      : null;
+    const averageRating =
+      reviews.length > 0
+        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+        : null;
 
     // Construct the formatted response
     const formattedStaff = {
@@ -2555,11 +2704,13 @@ const getStaffMemberById = async (req, res) => {
       status: application.status,
       createdAt: application.createdAt,
       availability: isBusy ? "BUSY" : "AVAILABLE",
-      currentBooking: currentBooking ? {
-        service: currentBooking.service.name,
-        customer: currentBooking.user.name,
-        time: currentBooking.slot?.time,
-      } : null,
+      currentBooking: currentBooking
+        ? {
+            service: currentBooking.service.name,
+            customer: currentBooking.user.name,
+            time: currentBooking.slot?.time,
+          }
+        : null,
       serviceAssignments,
       rating: averageRating,
       reviewCount: reviews.length,
@@ -2729,15 +2880,17 @@ const getStaffStatusTracking = async (req, res) => {
           staffEmail: app.staff.email,
           staffMobile: app.staff.mobile,
           status: isBusy ? "ON_SERVICE" : "AVAILABLE",
-          currentBooking: currentBooking ? {
-            bookingId: currentBooking.id,
-            service: currentBooking.service.name,
-            customer: currentBooking.user.name,
-            customerPhone: currentBooking.user.mobile,
-            time: currentBooking.slot?.time,
-            address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
-            trackingStatus: currentBooking.trackingStatus,
-          } : null,
+          currentBooking: currentBooking
+            ? {
+                bookingId: currentBooking.id,
+                service: currentBooking.service.name,
+                customer: currentBooking.user.name,
+                customerPhone: currentBooking.user.mobile,
+                time: currentBooking.slot?.time,
+                address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
+                trackingStatus: currentBooking.trackingStatus,
+              }
+            : null,
         };
       }),
     );
@@ -2778,9 +2931,10 @@ const getStaffBookings = async (req, res) => {
     });
 
     if (!application) {
-      return res
-        .status(404)
-        .json({ success: false, msg: "Staff member not found in your business." });
+      return res.status(404).json({
+        success: false,
+        msg: "Staff member not found in your business.",
+      });
     }
 
     // Get all bookings for this staff
@@ -2868,9 +3022,10 @@ const unlinkStaffMember = async (req, res) => {
     });
 
     if (!application) {
-      return res
-        .status(404)
-        .json({ success: false, msg: "Staff member not found in your business." });
+      return res.status(404).json({
+        success: false,
+        msg: "Staff member not found in your business.",
+      });
     }
 
     // Handle booking transfers if provided
@@ -2879,9 +3034,10 @@ const unlinkStaffMember = async (req, res) => {
         const { bookingId, newStaffId } = transfer;
 
         if (!newStaffId) {
-          return res
-            .status(400)
-            .json({ success: false, msg: "New staff ID is required for each booking transfer." });
+          return res.status(400).json({
+            success: false,
+            msg: "New staff ID is required for each booking transfer.",
+          });
         }
 
         // Verify new staff belongs to this business
@@ -2894,9 +3050,10 @@ const unlinkStaffMember = async (req, res) => {
         });
 
         if (!newStaffApplication) {
-          return res
-            .status(400)
-            .json({ success: false, msg: "Replacement staff member not found or not approved." });
+          return res.status(400).json({
+            success: false,
+            msg: "Replacement staff member not found or not approved.",
+          });
         }
 
         // Update the staff assignment
@@ -2935,12 +3092,10 @@ const unlinkStaffMember = async (req, res) => {
     });
 
     if (remainingAssignments > 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          msg: `Cannot unlink staff. They still have ${remainingAssignments} active booking(s) that need to be transferred.`
-        });
+      return res.status(400).json({
+        success: false,
+        msg: `Cannot unlink staff. They still have ${remainingAssignments} active booking(s) that need to be transferred.`,
+      });
     }
 
     // Create an entry in StaffExistFromBusiness for record keeping
@@ -2984,10 +3139,224 @@ const unlinkStaffMember = async (req, res) => {
   }
 };
 
+// Get staff details for provider (moved from staff controller to allow provider access)
+const getStaffDetailsForProvider = async (req, res) => {
+  const providerId = req.user.id;
+  const { staffId } = req.params;
+
+  try {
+    // Verify staff is associated with this provider's business
+    const staffAssignment = await prisma.staffApplications.findFirst({
+      where: {
+        staffId,
+        status: "APPROVED",
+        businessProfile: {
+          userId: providerId,
+        },
+      },
+      include: {
+        businessProfile: {
+          select: {
+            businessName: true,
+          },
+        },
+      },
+    });
+
+    if (!staffAssignment) {
+      return res.status(404).json({
+        success: false,
+        msg: "Staff member not found in your business.",
+      });
+    }
+
+    // Get staff basic info with availability
+    const staff = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        mobile: true,
+        createdAt: true,
+        isRestricted: true,
+        availability: true,
+      },
+    });
+
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        msg: "Staff not found.",
+      });
+    }
+
+    // Get all bookings for this staff under this provider's business with full details
+    const allBookings = await prisma.booking.findMany({
+      where: {
+        businessProfileId: staffAssignment.businessProfileId,
+        StaffAssignBooking: {
+          some: {
+            assignedStaffId: staffId,
+          },
+        },
+      },
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            durationInMinutes: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+          },
+        },
+        slot: {
+          select: {
+            id: true,
+            time: true,
+          },
+        },
+        address: {
+          select: {
+            id: true,
+            street: true,
+            city: true,
+            state: true,
+            postalCode: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    // Calculate performance metrics
+    const totalBookings = allBookings.length;
+    const completedBookings = allBookings.filter(
+      (b) =>
+        b.bookingStatus === "COMPLETED" || b.trackingStatus === "COMPLETED",
+    ).length;
+    const pendingBookings = allBookings.filter(
+      (b) =>
+        b.bookingStatus === "PENDING" || b.bookingStatus === "PENDING_PAYMENT",
+    ).length;
+    const confirmedBookings = allBookings.filter(
+      (b) => b.bookingStatus === "CONFIRMED",
+    ).length;
+
+    // Total earnings
+    const totalEarnings = allBookings
+      .filter(
+        (b) =>
+          b.paymentStatus === "PAID" &&
+          (b.bookingStatus === "COMPLETED" || b.trackingStatus === "COMPLETED"),
+      )
+      .reduce((sum, b) => sum + (b.staffEarnings || 0), 0);
+
+    // Get staff feedback (received by this staff) for this business only
+    const staffFeedbacks = await prisma.feedback.findMany({
+      where: {
+        staffId: staffId,
+        feedbackType: "STAFF",
+        booking: {
+          businessProfileId: staffAssignment.businessProfileId,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
+
+    // Calculate average rating
+    const averageRating =
+      staffFeedbacks.length > 0
+        ? staffFeedbacks.reduce((sum, f) => sum + f.rating, 0) /
+          staffFeedbacks.length
+        : 0;
+
+    // Calculate on-time performance
+    const now = new Date();
+    const upcomingBookings = allBookings.filter((b) => {
+      const bookingDate = new Date(b.date);
+      return bookingDate >= now && b.trackingStatus !== "COMPLETED";
+    }).length;
+
+    // Performance score (0-100)
+    const completionRate =
+      totalBookings > 0 ? (completedBookings / totalBookings) * 100 : 0;
+    const ratingScore = (averageRating / 5) * 100;
+    const performanceScore = Math.round(
+      completionRate * 0.6 + ratingScore * 0.4,
+    );
+
+    // Check if staff is currently busy (has active booking)
+    const activeBookings = allBookings.filter((b) => {
+      return (
+        b.bookingStatus === "CONFIRMED" &&
+        ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"].includes(
+          b.trackingStatus,
+        )
+      );
+    });
+
+    const isBusy =
+      staff.availability === "BUSY" || activeBookings.length > 0;
+    const currentBooking = isBusy ? activeBookings[0] : null;
+
+    return res.status(200).json({
+      success: true,
+      msg: "Staff details fetched successfully.",
+      staff: {
+        ...staff,
+        businessName: staffAssignment.businessProfile.businessName,
+        joinedAt: staffAssignment.createdAt,
+        availability: isBusy ? "BUSY" : "AVAILABLE",
+        currentBooking: currentBooking
+          ? {
+              service: currentBooking.service.name,
+              customer: currentBooking.user.name,
+              time: currentBooking.slot?.time,
+              date: currentBooking.date,
+            }
+          : null,
+        performance: {
+          totalBookings,
+          completedBookings,
+          pendingBookings,
+          confirmedBookings,
+          upcomingBookings,
+          completionRate: Math.round(completionRate),
+          averageRating: parseFloat(averageRating.toFixed(1)),
+          totalEarnings,
+          performanceScore,
+          feedbackCount: staffFeedbacks.length,
+        },
+        recentFeedbacks: staffFeedbacks.slice(0, 5),
+        recentActivity: allBookings.slice(0, 10), // Recent 10 bookings
+        bookingHistory: allBookings, // All bookings for history
+      },
+    });
+  } catch (error) {
+    console.error("getStaffDetailsForProvider error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not fetch staff details.",
+    });
+  }
+};
+
 module.exports = {
   getStaffMembers,
   deleteStaffMember,
   getStaffMemberById,
+  getStaffDetailsForProvider,
   updateStaffStatus,
   getStaffStatusTracking,
   getStaffBookings,

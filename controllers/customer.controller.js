@@ -349,11 +349,11 @@ const getCustomerBookings = async (req, res) => {
       select: {
         id: true,
         totalAmount: true,
-        staffPaymentStatus: true,
         bookingStatus: true,
         trackingStatus: true,
         date: true,
         paymentLink: true,
+        paymentStatus: true,
         expiresAt: true,
         createdAt: true,
         updatedAt: true,

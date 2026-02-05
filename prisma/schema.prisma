@@ -22,10 +22,13 @@ model User {
   restrictionLiftedAt DateTime?
   restrictionReason   String?
 
+  // Staff availability status
+  availability        AvailabilityStatus @default(AVAILABLE)
+
   // Stripe account for payouts (for staff)
-  stripeAccountId      String?
-  stripeAccountStatus String?   // PENDING, VERIFIED, RESTRICTED
-  stripeOnboardingUrl  String?   // URL for Stripe onboarding
+  stripeAccountId     String?
+  stripeAccountStatus String? // PENDING, VERIFIED, RESTRICTED
+  stripeOnboardingUrl String? // URL for Stripe onboarding
 
   addresses             Address[]
   bookings              Booking[]
@@ -46,11 +49,11 @@ model User {
   staffAssignBookings    StaffAssignBooking[]       @relation("AssignedStaff")
   staffApplications      StaffApplications[]
   staffReviews           StaffReview[]
-  staffFeedbacks         Feedback[]                @relation("StaffFeedback") // Received feedback as staff
+  staffFeedbacks         Feedback[]                 @relation("StaffFeedback") // Received feedback as staff
   StaffExistFromBusiness StaffExistFromBusiness[]
   staffPaymentRequests   StaffPaymentRequest[]
   staffPayments          StaffPayment[]
-  staffCardDetails       StaffCardDetails[]
+  UserCardDetails        UserCardDetails[]
 
   @@index([email])
   @@index([role])
@@ -78,20 +81,20 @@ model RefreshToken {
 }
 
 // Staff card details for receiving payments
-model StaffCardDetails {
-  id                String   @id @default(uuid())
-  userId            String   // Staff member who owns this card
-  cardholderName    String   // Name on card
-  lastFourDigits    String   // Last 4 digits for display
-  expiryMonth       Int      // Card expiry month (1-12)
-  expiryYear        Int      // Card expiry year
-  cardType          String   // visa, mastercard, etc.
-  isDefault         Boolean  @default(false)
-  isActive          Boolean  @default(true)
+model UserCardDetails {
+  id             String  @id @default(uuid())
+  userId         String // Staff member who owns this card
+  cardholderName String // Name on card
+  lastFourDigits String // Last 4 digits for display
+  expiryMonth    Int // Card expiry month (1-12)
+  expiryYear     Int // Card expiry year
+  cardType       String // visa, mastercard, etc.
+  isDefault      Boolean @default(false)
+  isActive       Boolean @default(true)
 
   // Encrypted card details (store in backend only, never expose to frontend)
-  encryptedCardNumber String  // AES-256 encrypted card number
-  encryptedCVV         String? // AES-256 encrypted CVV (optional, can be re-entered)
+  encryptedCardNumber String // AES-256 encrypted card number
+  encryptedCVV        String? // AES-256 encrypted CVV (optional, can be re-entered)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -240,12 +243,13 @@ model Booking {
   businessProfileId  String
   slotId             String?
   totalAmount        Int
+  paymentStatus      PaymentStatus @default(PENDING)
   platformFee        Int?          @default(0) // New: 10% fee
   providerEarnings   Int?          @default(0) // New: 90% earnings
   staffEarnings      Int?          @default(0) // Staff earnings from this booking
   staffPercentage    Float?        @default(50) // Percentage of provider earnings given to staff (configurable by provider)
   staffPaymentStatus PaymentStatus @default(PENDING) // Payment status to staff
-  staffPaidAt        DateTime?     // When staff was paid
+  staffPaidAt        DateTime? // When staff was paid
   bookingStatus      BookingStatus @default(PENDING)
   date               String
   paymentLink        String?
@@ -260,15 +264,15 @@ model Booking {
   slot            Slot?           @relation(fields: [slotId], references: [id])
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  cancellation           Cancellation?
-  feedback               Feedback[]
-  StaffAssignBooking     StaffAssignBooking[]
-  StaffPaymentRequest    StaffPaymentRequest[]
-  StaffPayment           StaffPayment[]
+  cancellation        Cancellation?
+  feedback            Feedback[]
+  StaffAssignBooking  StaffAssignBooking[]
+  StaffPaymentRequest StaffPaymentRequest[]
+  StaffPayment        StaffPayment[]
 
-  trackingStatus          TrackingStatus @default(NOT_STARTED)
-  reminderSentAt          DateTime?      // Staff reminder timestamp
-  providerReminderSentAt  DateTime?      // Provider reminder timestamp
+  trackingStatus         TrackingStatus @default(NOT_STARTED)
+  reminderSentAt         DateTime? // Staff reminder timestamp
+  providerReminderSentAt DateTime? // Provider reminder timestamp
 
   @@index([userId])
   @@index([businessProfileId])
@@ -278,21 +282,21 @@ model Booking {
 
 // Staff payment request - staff requests payment from provider
 model StaffPaymentRequest {
-  id                String   @id @default(uuid())
-  bookingId         String
-  staffId           String   // Staff requesting payment
-  providerId        String   // Provider business owner
-  requestedAmount   Int      // Service price (base amount before percentage)
-  staffFeedback     String?  // Staff's notes about the service
-  requestStatus     RequestStatus @default(PENDING)
-  requestedAt       DateTime @default(now())
-  reviewedAt        DateTime?
-  rejectionReason   String?
+  id              String        @id @default(uuid())
+  bookingId       String
+  staffId         String // Staff requesting payment
+  providerId      String // Provider business owner
+  requestedAmount Int // Service price (base amount before percentage)
+  staffFeedback   String? // Staff's notes about the service
+  requestStatus   RequestStatus @default(PENDING)
+  requestedAt     DateTime      @default(now())
+  reviewedAt      DateTime?
+  rejectionReason String?
 
-  booking           Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  staff             User     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  staff   User    @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
-  @@unique([bookingId, staffId])  // One request per staff per booking
+  @@unique([bookingId, staffId]) // One request per staff per booking
   @@index([staffId])
   @@index([providerId])
   @@index([requestStatus])
@@ -300,22 +304,22 @@ model StaffPaymentRequest {
 
 // Staff payment record - actual payment made to staff
 model StaffPayment {
-  id                String        @id @default(uuid())
-  bookingId         String
-  staffId           String
-  providerId        String
-  requestedAmount   Int           // Service price
-  percentage        Float         // Percentage provider gave to staff
-  staffAmount       Int           // Actual amount paid to staff
-  paymentMethod     String        @default("stripe") // stripe, bank_transfer, etc.
-  stripeTransferId  String?       // Stripe transfer ID
-  paidAt            DateTime      @default(now())
-  status            PaymentStatus @default(PENDING)
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id               String        @id @default(uuid())
+  bookingId        String
+  staffId          String
+  providerId       String
+  requestedAmount  Int // Service price
+  percentage       Float // Percentage provider gave to staff
+  staffAmount      Int // Actual amount paid to staff
+  paymentMethod    String        @default("stripe") // stripe, bank_transfer, etc.
+  stripeTransferId String? // Stripe transfer ID
+  paidAt           DateTime      @default(now())
+  status           PaymentStatus @default(PENDING)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  booking           Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  staff             User          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  staff   User    @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
   @@index([staffId])
   @@index([providerId])
@@ -414,18 +418,18 @@ model Notification {
 }
 
 model Feedback {
-  id          String        @id @default(uuid())
-  username    String
-  rating      Int
-  comment     String
-  servicename String
-  feedbackType FeedbackType  @default(PROVIDER) // New: STAFF or PROVIDER
-  createdAt   DateTime      @default(now())
+  id           String       @id @default(uuid())
+  username     String
+  rating       Int
+  comment      String
+  servicename  String
+  feedbackType FeedbackType @default(PROVIDER) // New: STAFF or PROVIDER
+  createdAt    DateTime     @default(now())
 
   bookingId String
   userId    String
   serviceId String
-  staffId   String?        // New: Staff member being rated (null for provider feedback)
+  staffId   String? // New: Staff member being rated (null for provider feedback)
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
@@ -567,6 +571,10 @@ model StaffAssignBooking {
 
   status AssignmentStatus @default(PENDING)
 
+  // Staff payment configuration
+  staffPaymentType  StaffPaymentType @default(PERCENTAGE)
+  staffPaymentValue Float            @default(50) // Percentage (0-100) or Fixed amount
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -649,6 +657,16 @@ enum AssignmentStatus {
   CANCELLED
 }
 
+enum StaffPaymentType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum AvailabilityStatus {
+  AVAILABLE
+  BUSY
+}
+
 enum Role {
   customer
   provider
@@ -686,6 +704,6 @@ enum RequestStatus {
 }
 
 enum FeedbackType {
-  STAFF    // Feedback for staff member
+  STAFF // Feedback for staff member
   PROVIDER // Feedback for provider/business
 }

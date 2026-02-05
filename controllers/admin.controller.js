@@ -2135,7 +2135,6 @@ const getAllStaff = async (req, res) => {
         name: true,
         email: true,
         mobile: true,
-        profilePicture: true,
         isRestricted: true,
         restrictedAt: true,
         restrictedBy: true,
@@ -2183,19 +2182,24 @@ const getAllStaff = async (req, res) => {
 
         const totalBookings = allBookings.length;
         const completedBookings = allBookings.filter(
-          (b) => b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED"
+          (b) =>
+            b.booking.bookingStatus === "COMPLETED" ||
+            b.booking.trackingStatus === "COMPLETED",
         ).length;
 
         // Calculate completion rate
-        const completionRate = totalBookings > 0
-          ? Math.round((completedBookings / totalBookings) * 100)
-          : 0;
+        const completionRate =
+          totalBookings > 0
+            ? Math.round((completedBookings / totalBookings) * 100)
+            : 0;
 
         // Calculate total earnings
         const totalEarnings = allBookings
           .filter(
-            (b) => b.booking.paymentStatus === "PAID" &&
-              (b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED")
+            (b) =>
+              b.booking.paymentStatus === "PAID" &&
+              (b.booking.bookingStatus === "COMPLETED" ||
+                b.booking.trackingStatus === "COMPLETED"),
           )
           .reduce((sum, b) => sum + (b.booking.providerEarnings || 0), 0);
 
@@ -2204,13 +2208,16 @@ const getAllStaff = async (req, res) => {
           where: { staffId: staff.id },
         });
 
-        const averageRating = reviews.length > 0
-          ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-          : 0;
+        const averageRating =
+          reviews.length > 0
+            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+            : 0;
 
         return {
           ...staff,
-          associatedBusinesses: businesses.map((b) => b.businessProfile.businessName).join(", "),
+          associatedBusinesses: businesses
+            .map((b) => b.businessProfile.businessName)
+            .join(", "),
           totalBookings,
           completedBookings,
           completionRate,
@@ -2218,7 +2225,7 @@ const getAllStaff = async (req, res) => {
           averageRating: parseFloat(averageRating.toFixed(1)),
           reviewCount: reviews.length,
         };
-      })
+      }),
     );
 
     const total = await prisma.user.count({ where });
@@ -2250,7 +2257,6 @@ const getStaffById = async (req, res) => {
         name: true,
         email: true,
         mobile: true,
-        profilePicture: true,
         role: true,
         isRestricted: true,
         restrictedAt: true,
@@ -2323,18 +2329,23 @@ const getStaffById = async (req, res) => {
     // Calculate performance metrics
     const totalBookings = bookingAssignments.length;
     const completedBookings = bookingAssignments.filter(
-      (b) => b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED"
+      (b) =>
+        b.booking.bookingStatus === "COMPLETED" ||
+        b.booking.trackingStatus === "COMPLETED",
     ).length;
 
-    const completionRate = totalBookings > 0
-      ? Math.round((completedBookings / totalBookings) * 100)
-      : 0;
+    const completionRate =
+      totalBookings > 0
+        ? Math.round((completedBookings / totalBookings) * 100)
+        : 0;
 
     // Calculate total earnings
     const totalEarnings = bookingAssignments
       .filter(
-        (b) => b.booking.paymentStatus === "PAID" &&
-          (b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED")
+        (b) =>
+          b.booking.paymentStatus === "PAID" &&
+          (b.booking.bookingStatus === "COMPLETED" ||
+            b.booking.trackingStatus === "COMPLETED"),
       )
       .reduce((sum, b) => sum + (b.booking.providerEarnings || 0), 0);
 
@@ -2351,9 +2362,10 @@ const getStaffById = async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    const averageRating = reviews.length > 0
-      ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-      : 0;
+    const averageRating =
+      reviews.length > 0
+        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+        : 0;
 
     // Get recent activity log (optional enhancement)
     const recentActivity = await prisma.providerAdminActivityLog.findMany({

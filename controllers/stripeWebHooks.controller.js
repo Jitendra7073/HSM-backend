@@ -634,10 +634,10 @@ const handleProviderSubscriptionUpdated = async (subscription, req) => {
     where: { stripeSubscriptionId: subscription.id },
     data: {
       status: subscription.status,
-      currentPeriodEnd: new Date(periodEndUnix * 1000),
+      currentPeriodEnd: new Date(periodEndUnix),
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
       cancelAt: subscription.cancel_at
-        ? new Date(subscription.cancel_at * 1000)
+        ? new Date(subscription.cancel_at)
         : null,
     },
   });
