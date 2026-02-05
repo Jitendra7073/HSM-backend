@@ -2100,7 +2100,323 @@ const getRevenueStats = async (req, res) => {
   }
 };
 
+/* --------------- STAFF MANAGEMENT --------------- */
+
+// Get all staff with pagination and stats
+const getAllStaff = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search, status } = req.query; // status can be restricted/active
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = { role: "staff" };
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { mobile: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    if (status === "restricted") {
+      where.isRestricted = true;
+    } else if (status === "active") {
+      where.isRestricted = false;
+    }
+
+    const staffMembers = await prisma.user.findMany({
+      where,
+      skip,
+      take,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        mobile: true,
+        profilePicture: true,
+        isRestricted: true,
+        restrictedAt: true,
+        restrictedBy: true,
+        restrictionReason: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Get detailed stats for each staff member
+    const formatted = await Promise.all(
+      staffMembers.map(async (staff) => {
+        // Get associated businesses (approved only)
+        const businesses = await prisma.staffApplications.findMany({
+          where: {
+            staffId: staff.id,
+            status: "APPROVED",
+          },
+          include: {
+            businessProfile: {
+              select: {
+                id: true,
+                businessName: true,
+              },
+            },
+          },
+        });
+
+        // Get booking stats
+        const allBookings = await prisma.staffAssignBooking.findMany({
+          where: {
+            assignedStaffId: staff.id,
+          },
+          include: {
+            booking: {
+              select: {
+                bookingStatus: true,
+                trackingStatus: true,
+                staffPaymentStatus: true,
+                providerEarnings: true,
+              },
+            },
+          },
+        });
+
+        const totalBookings = allBookings.length;
+        const completedBookings = allBookings.filter(
+          (b) => b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED"
+        ).length;
+
+        // Calculate completion rate
+        const completionRate = totalBookings > 0
+          ? Math.round((completedBookings / totalBookings) * 100)
+          : 0;
+
+        // Calculate total earnings
+        const totalEarnings = allBookings
+          .filter(
+            (b) => b.booking.paymentStatus === "PAID" &&
+              (b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED")
+          )
+          .reduce((sum, b) => sum + (b.booking.providerEarnings || 0), 0);
+
+        // Get average rating from reviews
+        const reviews = await prisma.staffReview.findMany({
+          where: { staffId: staff.id },
+        });
+
+        const averageRating = reviews.length > 0
+          ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+          : 0;
+
+        return {
+          ...staff,
+          associatedBusinesses: businesses.map((b) => b.businessProfile.businessName).join(", "),
+          totalBookings,
+          completedBookings,
+          completionRate,
+          totalEarnings,
+          averageRating: parseFloat(averageRating.toFixed(1)),
+          reviewCount: reviews.length,
+        };
+      })
+    );
+
+    const total = await prisma.user.count({ where });
+
+    res.status(200).json({
+      success: true,
+      data: formatted,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching staff:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const getStaffById = async (req, res) => {
+  // Reuse getUserById or custom? Custom for specific stats.
+  try {
+    const { staffId } = req.params;
+    const staff = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        mobile: true,
+        profilePicture: true,
+        role: true,
+        isRestricted: true,
+        restrictedAt: true,
+        restrictedBy: true,
+        restrictionReason: true,
+        restrictionLiftedAt: true,
+        createdAt: true,
+      },
+    });
+
+    if (!staff || staff.role !== "staff")
+      return res.status(404).json({ success: false, msg: "Staff not found" });
+
+    // Get associated businesses
+    const businessApplications = await prisma.staffApplications.findMany({
+      where: { staffId },
+      include: {
+        businessProfile: {
+          select: {
+            id: true,
+            businessName: true,
+            contactEmail: true,
+            phoneNumber: true,
+            isActive: true,
+            category: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Get all booking assignments with full details
+    const bookingAssignments = await prisma.staffAssignBooking.findMany({
+      where: { assignedStaffId: staffId },
+      include: {
+        booking: {
+          include: {
+            service: {
+              select: {
+                name: true,
+                price: true,
+              },
+            },
+            businessProfile: {
+              select: {
+                businessName: true,
+              },
+            },
+            user: {
+              select: {
+                name: true,
+                mobile: true,
+              },
+            },
+            slot: {
+              select: {
+                time: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Calculate performance metrics
+    const totalBookings = bookingAssignments.length;
+    const completedBookings = bookingAssignments.filter(
+      (b) => b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED"
+    ).length;
+
+    const completionRate = totalBookings > 0
+      ? Math.round((completedBookings / totalBookings) * 100)
+      : 0;
+
+    // Calculate total earnings
+    const totalEarnings = bookingAssignments
+      .filter(
+        (b) => b.booking.paymentStatus === "PAID" &&
+          (b.booking.bookingStatus === "COMPLETED" || b.booking.trackingStatus === "COMPLETED")
+      )
+      .reduce((sum, b) => sum + (b.booking.providerEarnings || 0), 0);
+
+    // Get reviews with business names
+    const reviews = await prisma.staffReview.findMany({
+      where: { staffId },
+      include: {
+        businessProfile: {
+          select: {
+            businessName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const averageRating = reviews.length > 0
+      ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+      : 0;
+
+    // Get recent activity log (optional enhancement)
+    const recentActivity = await prisma.providerAdminActivityLog.findMany({
+      where: { actorId: staffId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
+
+    const response = {
+      ...staff,
+      businesses: businessApplications.map((app) => ({
+        id: app.businessProfile.id,
+        businessName: app.businessProfile.businessName,
+        contactEmail: app.businessProfile.contactEmail,
+        phoneNumber: app.businessProfile.phoneNumber,
+        category: app.businessProfile.category?.name,
+        isActive: app.businessProfile.isActive,
+        applicationStatus: app.status,
+        joinedAt: app.createdAt,
+      })),
+      bookings: bookingAssignments.map((assignment) => ({
+        id: assignment.booking.id,
+        serviceName: assignment.booking.service.name,
+        businessName: assignment.booking.businessProfile.businessName,
+        customerName: assignment.booking.user.name,
+        customerPhone: assignment.booking.user.mobile,
+        date: assignment.booking.date,
+        time: assignment.booking.slot?.time,
+        amount: assignment.booking.totalAmount,
+        bookingStatus: assignment.booking.bookingStatus,
+        trackingStatus: assignment.booking.trackingStatus,
+        paymentStatus: assignment.booking.paymentStatus,
+        assignedAt: assignment.createdAt,
+        assignmentStatus: assignment.status,
+      })),
+      performanceMetrics: {
+        totalBookings,
+        completedBookings,
+        completionRate,
+        totalEarnings,
+        averageRating: parseFloat(averageRating.toFixed(1)),
+        reviewCount: reviews.length,
+      },
+      reviews: reviews.map((review) => ({
+        id: review.id,
+        rating: review.rating,
+        review: review.review,
+        businessName: review.businessProfile.businessName,
+        createdAt: review.createdAt,
+      })),
+      recentActivity,
+    };
+
+    res.status(200).json({ success: true, data: response });
+  } catch (error) {
+    console.error("Error fetching staff details:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
+  getAllStaff,
+  getStaffById,
   getAllUsers,
   getUserById,
   restrictUser,

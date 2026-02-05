@@ -12,6 +12,17 @@ route.use(RoleBasedAccess("admin"));
 route.get("/users", AdminController.getAllUsers);
 route.get("/users/:userId", AdminController.getUserById);
 route.patch("/users/:userId/restrict", AdminController.restrictUser);
+
+/* ------------------ STAFF MANAGEMENT ROUTES ------------------ */
+route.get("/staff", AdminController.getAllStaff);
+route.get("/staff/:staffId", AdminController.getStaffById);
+// Resusing User restriction logic as Staff are Users
+route.patch("/staff/:userId/restrict", AdminController.restrictUser);
+route.patch(
+  "/staff/:userId/lift-restriction",
+  AdminController.liftUserRestriction,
+);
+
 route.patch(
   "/users/:userId/lift-restriction",
   AdminController.liftUserRestriction,

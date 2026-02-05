@@ -51,6 +51,9 @@ const {
   startBookingCleanupJob,
   startBookingCancellationCleanupJob,
 } = require("./controllers/scheduler/bookingCleanUp");
+const {
+  startReminderScheduler,
+} = require("./controllers/scheduler/reminderScheduler");
 
 /* ---------------- PUBLIC ROUTE ---------------- */
 app.use("/auth", AuthRoutes);
@@ -79,4 +82,6 @@ server.listen(PORT, () => {
   /* ---------------- START SCHEDULER JOBS ---------------- */
   startBookingCleanupJob();
   console.log("Booking cleanup job started - runs every 30 seconds");
+
+  startReminderScheduler();
 });

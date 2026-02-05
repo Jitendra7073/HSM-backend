@@ -59,13 +59,11 @@ const updateContent = async (req, res) => {
       console.error("Notification error:", err),
     );
 
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Content updated successfully",
-        data: updated,
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Content updated successfully",
+      data: updated,
+    });
   } catch (error) {
     console.error("Update content error:", error);
     return res
@@ -76,18 +74,6 @@ const updateContent = async (req, res) => {
 
 // Helper to notify users
 const notifyUsersOfUpdate = async (title, key) => {
-  // In a real production app, use a queue system (Bull/RabbitMQ) for mass notifications.
-  // Here we will simulate the intent or handle a small batch.
-
-  // 1. Send generic announcement notification logic (if supported)
-  // or loop through active users (Caution: heavy operation)
-
-  // For this task, we will log the action.
-  // Implementing mass email/push for potentially thousands of users synchronously is dangerous.
-  console.log(
-    `[Notification System] Content '${title}' (${key}) updated. Triggering mass alert...`,
-  );
-
   // Example: Find last 50 active users to notify (Proof of Concept)
   const activeUsers = await prisma.user.findMany({
     take: 50,
@@ -102,9 +88,6 @@ const notifyUsersOfUpdate = async (title, key) => {
       `Our ${title} has been updated. Please review the changes.`,
       user.id,
     );
-
-    // Send Email (Mock/Actual)
-    // await sendMail({ ... })
   }
 };
 

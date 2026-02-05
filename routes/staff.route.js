@@ -1,97 +1,73 @@
 const express = require("express");
 const route = express.Router();
-const StaffController = require("../controllers/staff.controller");
-const { checkAuthToken } = require("../middleware/checkToken");
-const { RoleBasedAccess } = require("../middleware/checkRole");
 const CustomerController = require("../controllers/customer.controller");
+const StaffController = require("../controllers/staff.controller");
+const {
+  requestPaymentFromProvider,
+  getStaffPaymentHistory,
+  getStripeOnboardingLink,
+  checkStaffProfileCompletion,
+} = require("../controllers/staff-payment.controller");
+const {
+  addStaffCardDetails,
+  getStaffCardDetails,
+  updateStaffCardDetails,
+  deleteStaffCardDetails,
+  setDefaultCard,
+} = require("../controllers/staff-card.controller");
+
 /* ---------------- STAFF PROFILE ROUTES ---------------- */
-route.get("/providers", CustomerController.getAllProviders);
+route.get("/dashboard/stats", StaffController.getDashboardStats);
+route.get("/profile", StaffController.getStaffProfile);
+route.put("/profile", StaffController.updateStaffProfile);
+route.get("/providers", StaffController.getAllProviders);
 
-route
-  .route("/profile/:staffId")
-  .get(StaffController.getStaffProfileById)
-  .patch(StaffController.updateStaffProfile)
-  .delete(StaffController.deleteStaffProfile);
+// Staff details for provider (view staff performance)
+route.get("/staff/:staffId/details", StaffController.getStaffDetailsForProvider);
 
-/* ---------------- SERVICE ASSIGNMENT ROUTES ---------------- */
-route.post("/assign-service", StaffController.assignServiceToStaff);
-route.get("/:staffId/services", StaffController.getStaffServiceAssignments);
+// route.get("/business-staffs", StaffController.getAllBusinessStaffs);
+// route.get("/all-staffs", StaffController.getAllStaffs);
 
-route
-  .route("/assignment/:assignmentId")
-  .patch(StaffController.updateServiceAssignment)
-  .delete(StaffController.removeServiceAssignment);
+// Stafff Application for Businesses
+route.get("/applications", StaffController.getStaffApplications);
+route.post("/applications/apply", StaffController.applyForStaffApplication);
+route.delete("/applications/:applicationId", StaffController.cancelStaffApplication);
+route.put("/applications/exist", StaffController.requestForExist);
 
-/* ---------------- AVAILABILITY ROUTES ---------------- */
-route.post("/availability", StaffController.setStaffAvailability);
-route.get("/:staffId/availability", StaffController.getStaffAvailability);
-
-/* ---------------- STAFF BOOKING ROUTES ---------------- */
-route.get("/bookings", StaffController.getStaffAssignedBookings);
-route.patch(
-  "/booking/:bookingId/status",
-  StaffController.updateBookingStatusByStaff,
+// Staff Assigned Bookings
+route.get("/bookings", StaffController.getStaffBookings);
+route.put(
+  "/bookings/:bookingId/status",
+  StaffController.updateBookingTrackingStatus,
 );
 
-/* ---------------- STAFF DASHBOARD ---------------- */
-route.get("/dashboard/stats", StaffController.getStaffDashboardStats);
+/* ---------------- STAFF PAYMENT ROUTES ---------------- */
+// Request payment from provider after completing service
+route.post("/payments/request", requestPaymentFromProvider);
 
-/* ---------------- EARNINGS ROUTES ---------------- */
-route.get("/earnings", StaffController.getStaffEarnings);
+// Get staff's payment history
+route.get("/payments/history", getStaffPaymentHistory);
 
-/* ---------------- GLOBAL STAFF ROUTES ---------------- */
-route.post("/register-global", StaffController.registerAsGlobalStaff);
+// Get Stripe onboarding link
+route.get("/stripe/onboarding", getStripeOnboardingLink);
 
-/* ---------------- ADMIN ROUTES ---------------- */
-route.patch("/admin/approve/:staffId", StaffController.approveGlobalStaff);
+// Check staff profile completion status
+route.get("/profile/completion", checkStaffProfileCompletion);
 
-/* ---------------- BUSINESS APPLICATION ROUTES ---------------- */
-route.get("/businesses/browse", StaffController.browseBusinesses);
-route.post(
-  "/apply-business",
-  checkAuthToken,
-  RoleBasedAccess("staff"),
-  StaffController.applyToBusiness,
-);
-route.get(
-  "/my-applications",
-  checkAuthToken,
-  RoleBasedAccess("staff"),
-  StaffController.getMyApplications,
-);
+/* ---------------- STAFF CARD DETAILS ROUTES ---------------- */
+// Add card details
+route.post("/cards", addStaffCardDetails);
 
-// Provider routes for managing applications
-route.get(
-  "/provider/applications",
-  checkAuthToken,
-  RoleBasedAccess("provider"),
-  StaffController.getBusinessApplications,
-);
-route.patch(
-  "/provider/applications/:applicationId/respond",
-  checkAuthToken,
-  RoleBasedAccess("provider"),
-  StaffController.respondToApplication,
-);
+// Get all card details
+route.get("/cards", getStaffCardDetails);
 
-/* ---------------- BOOKING ASSIGNMENT ROUTES ---------------- */
-route.get(
-  "/provider/bookings/:bookingId/available-staff",
-  checkAuthToken,
-  RoleBasedAccess("provider"),
-  StaffController.getAvailableStaffForBooking,
-);
-route.patch(
-  "/provider/bookings/:bookingId/assign-staff",
-  checkAuthToken,
-  RoleBasedAccess("provider"),
-  StaffController.assignStaffToBooking,
-);
-route.patch(
-  "/provider/bookings/:bookingId/remove-staff",
-  checkAuthToken,
-  RoleBasedAccess("provider"),
-  StaffController.removeStaffFromBooking,
-);
+// Update card details
+route.put("/cards/:cardId", updateStaffCardDetails);
+
+// Delete card
+route.delete("/cards/:cardId", deleteStaffCardDetails);
+
+// Set default card
+route.patch("/cards/:cardId/default", setDefaultCard);
 
 module.exports = route;

@@ -10,7 +10,7 @@ const mobile = Joi.string()
 
 /* ---------------- SIGN UP ---------------- */
 const SignUpSchema = Joi.object({
-  role: Joi.string().valid("customer", "provider").required(),
+  role: Joi.string().valid("customer", "provider", "staff").required(),
   name,
   email,
   mobile,

@@ -174,19 +174,21 @@ const getAddress = async (req, res) => {
   const userId = req.user.id;
 
   try {
-    const address = await prisma.Address.findMany({
+    const addresses = await prisma.address.findMany({
       where: { userId },
     });
 
     return res.status(200).json({
       success: true,
       msg: "Address fetched successfully.",
-      address,
+      addresses, // Changed from 'address' to 'addresses' to match frontend expectation
     });
   } catch (error) {
+    console.error("Error fetching addresses:", error);
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not fetch address.",
+      error: error.message,
     });
   }
 };
@@ -203,7 +205,7 @@ const addAddress = async (req, res) => {
     });
   }
   try {
-    const isTooMuchAddress = await prisma.Address.findMany({
+    const isTooMuchAddress = await prisma.address.findMany({
       where: { userId },
     });
 
@@ -214,7 +216,7 @@ const addAddress = async (req, res) => {
       });
     }
 
-    const newAddress = await prisma.Address.create({
+    const newAddress = await prisma.address.create({
       data: { ...value, userId },
     });
 
@@ -268,7 +270,7 @@ const deleteAddress = async (req, res) => {
   const { addressId } = req.params;
 
   try {
-    const address = await prisma.Address.findFirst({
+    const address = await prisma.address.findFirst({
       where: {
         id: addressId,
         userId,
@@ -296,7 +298,7 @@ const deleteAddress = async (req, res) => {
       });
     }
 
-    await prisma.Address.delete({
+    await prisma.address.delete({
       where: { id: addressId },
     });
 

@@ -111,7 +111,7 @@ const register = async (req, res) => {
               userId: user.id,
               planId: freePlan.id,
               status: "active",
-              stripeSubscriptionId: `free_plan_${Date.now()}`,
+              stripeSubscriptionId: `free_sub_${user.id}`,
               stripeCustomerId: `free_cust_${user.id}`,
               currentPeriodStart: new Date(),
               currentPeriodEnd: new Date(
@@ -126,7 +126,6 @@ const register = async (req, res) => {
         console.error("Failed to assign default free plan:", planErr);
       }
     }
-
     res.status(201).json({
       success: true,
       message: "User registered successfully",

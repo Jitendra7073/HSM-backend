@@ -378,7 +378,7 @@ const providerSubscriptionCheckout = async (req, res) => {
         update: {
           planId: plan.id,
           status: "active",
-          stripeSubscriptionId: `free_plan_${Date.now()}`, // Dummy ID to satisfy Unique constraint if any, or logic
+          stripeSubscriptionId: `free_sub_${userId}`, // Use consistent ID format
           stripeCustomerId:
             provider.providerSubscription?.stripeCustomerId ||
             `free_cust_${userId}`,
@@ -393,7 +393,7 @@ const providerSubscriptionCheckout = async (req, res) => {
           userId,
           planId: plan.id,
           status: "active",
-          stripeSubscriptionId: `free_plan_${Date.now()}`,
+          stripeSubscriptionId: `free_sub_${userId}`,
           stripeCustomerId: `free_cust_${userId}`,
           currentPeriodStart: new Date(),
           currentPeriodEnd: new Date(
@@ -475,6 +475,17 @@ const seedProviderSubscriptionPlans = async (req, res) => {
   try {
     const plans = await prisma.providerSubscriptionPlan.createMany({
       data: [
+        {
+          name: "Free Plan",
+          price: 0,
+          currency: "INR",
+          interval: "month",
+          stripePriceId: "price_free_default",
+          isActive: true,
+          commissionRate: 10.0,
+          maxServices: 5,
+          maxBookings: 20,
+        },
         {
           name: "PREMIMUM",
           price: 399,

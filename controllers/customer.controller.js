@@ -22,13 +22,17 @@ const getAllProviders = async (req, res) => {
   const skip = (page - 1) * limit;
 
   try {
-    // Get total count of providers
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    // Get total count of providers (Active or Trialing only)
     const totalCount = await prisma.user.count({
       where: {
         role: "provider",
         providerSubscription: {
           status: {
-            in: ["active", "trialing"],
+            in: ["active", "trialing"], // Free plan is also 'active'
           },
           currentPeriodEnd: {
             gt: new Date(),
@@ -49,7 +53,7 @@ const getAllProviders = async (req, res) => {
         role: "provider",
         providerSubscription: {
           status: {
-            in: ["active", "trialing"],
+            in: ["active", "trialing"], // Free plan is also 'active'
           },
           currentPeriodEnd: {
             gt: new Date(),
@@ -66,11 +70,32 @@ const getAllProviders = async (req, res) => {
         id: true,
         name: true,
         mobile: true,
+        providerSubscription: {
+          select: {
+            plan: {
+              select: {
+                maxServices: true,
+                maxBookings: true,
+              },
+            },
+          },
+        },
         businessProfile: {
           select: {
             id: true,
             businessName: true,
             isActive: true,
+            // Count monthly bookings for limit check
+            _count: {
+              select: {
+                Booking: {
+                  where: {
+                    createdAt: { gte: startOfMonth },
+                    bookingStatus: { not: "CANCELLED" },
+                  },
+                },
+              },
+            },
             services: {
               where: {
                 isActive: true,
@@ -107,7 +132,41 @@ const getAllProviders = async (req, res) => {
       skip: skip,
     });
 
-    if (!providers.length) {
+    // Post-process to filter by limits
+    const processedProviders = providers
+      .map((provider) => {
+        const plan = provider.providerSubscription?.plan;
+        const maxServices = plan?.maxServices ?? 5;
+        const maxBookings = plan?.maxBookings ?? 20;
+
+        // 1. Check Booking Limit
+        const currentBookings = provider.businessProfile?._count?.Booking || 0;
+        if (maxBookings !== -1 && currentBookings >= maxBookings) {
+          // Provider has reached monthly limits, hide them
+          return null;
+        }
+
+        // 2. Limit Services
+        if (
+          provider.businessProfile &&
+          provider.businessProfile.services &&
+          maxServices !== -1
+        ) {
+          provider.businessProfile.services =
+            provider.businessProfile.services.slice(0, maxServices);
+        }
+
+        // Cleanup response
+        delete provider.providerSubscription;
+        if (provider.businessProfile) {
+          delete provider.businessProfile._count;
+        }
+
+        return provider;
+      })
+      .filter((p) => p !== null); // Remove hidden providers
+
+    if (!processedProviders.length) {
       return res.status(200).json({
         success: true,
         msg: "No subscribed providers available.",
@@ -115,26 +174,27 @@ const getAllProviders = async (req, res) => {
         pagination: {
           page,
           limit,
-          totalCount,
-          totalPages: 0,
+          totalCount, // Note: totalCount is still the unfiltered count
+          totalPages: Math.ceil(totalCount / limit),
         },
         providers: [],
       });
     }
 
-    const totalPages = Math.ceil(totalCount / limit);
+    // Recalculate pagination metadata if needed, though totalCount is pre-filtering
+    // Ideally we'd filter at DB level but aggregation in WHERE is limited.
 
     return res.status(200).json({
       success: true,
       msg: "Subscribed providers fetched successfully.",
-      count: providers.length,
+      count: processedProviders.length,
       pagination: {
         page,
         limit,
         totalCount,
-        totalPages,
+        totalPages: Math.ceil(totalCount / limit),
       },
-      providers,
+      providers: processedProviders,
     });
   } catch (err) {
     console.error("Error fetching providers:", err);
@@ -157,6 +217,15 @@ const getProviderById = async (req, res) => {
         name: true,
         email: true,
         mobile: true,
+        providerSubscription: {
+          select: {
+            plan: {
+              select: {
+                maxServices: true,
+              },
+            },
+          },
+        },
         businessProfile: {
           select: {
             id: true,
@@ -232,6 +301,20 @@ const getProviderById = async (req, res) => {
         .json({ success: false, msg: "Provider is currently unavailable." });
     }
 
+    // Limit services based on plan
+    const maxServices = provider.providerSubscription?.plan?.maxServices || 5;
+    if (
+      provider.businessProfile &&
+      provider.businessProfile.services &&
+      maxServices !== -1
+    ) {
+      provider.businessProfile.services =
+        provider.businessProfile.services.slice(0, maxServices);
+    }
+
+    // cleanup subscription for response
+    delete provider.providerSubscription;
+
     return res.status(200).json({
       success: true,
       msg: "Provider fetched successfully.",
@@ -266,8 +349,9 @@ const getCustomerBookings = async (req, res) => {
       select: {
         id: true,
         totalAmount: true,
-        paymentStatus: true,
+        staffPaymentStatus: true,
         bookingStatus: true,
+        trackingStatus: true,
         date: true,
         paymentLink: true,
         expiresAt: true,
@@ -288,6 +372,17 @@ const getCustomerBookings = async (req, res) => {
                 id: true,
                 email: true,
                 mobile: true,
+              },
+            },
+          },
+        },
+        StaffAssignBooking: {
+          select: {
+            assignedStaff: {
+              select: {
+                name: true,
+                mobile: true,
+                email: true,
               },
             },
           },
@@ -367,6 +462,8 @@ const getCustomerBookings = async (req, res) => {
         totalAmount: b.totalAmount,
         paymentStatus: b.paymentStatus,
         bookingStatus: b.bookingStatus,
+        trackingStatus: b.trackingStatus || "NOT_STARTED",
+        assignedStaff: b.StaffAssignBooking?.[0]?.assignedStaff || null,
         date: b.date,
         createdAt: b.createdAt,
         updatedAt: b.updatedAt,

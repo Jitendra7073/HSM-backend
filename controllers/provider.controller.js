@@ -48,7 +48,7 @@ const createBusiness = async (req, res) => {
     }
 
     // check address is exist or not
-    const isAddressExist = await prisma.Address.findFirst({
+    const isAddressExist = await prisma.address.findFirst({
       where: { userId },
     });
 
@@ -82,7 +82,7 @@ const createBusiness = async (req, res) => {
     // ---------------- NOTIFY ADMINS ----------------
     try {
       const admins = await prisma.user.findMany({
-        where: { role: "admin" },
+        where: { role: { in: ["admin", "staff"] } },
         select: { id: true },
       });
 
@@ -142,6 +142,16 @@ const getBusinessProfile = async (req, res) => {
     const businessDetails = await prisma.BusinessProfile.findUnique({
       where: { userId },
     });
+
+    // If no business profile exists, return 404 with empty data
+    if (!businessDetails) {
+      return res.status(404).json({
+        success: false,
+        msg: "Business profile not found.",
+        business: null,
+      });
+    }
+
     const categoryName = await prisma.Businesscategory.findUnique({
       where: { id: businessDetails.businessCategoryId },
       select: { name: true },
@@ -587,7 +597,7 @@ const createService = async (req, res) => {
     }
 
     // check address is exist or not
-    const isAddressExist = await prisma.Address.findFirst({
+    const isAddressExist = await prisma.address.findFirst({
       where: { userId },
     });
 
@@ -1300,7 +1310,7 @@ const bookingList = async (req, res) => {
         },
         date: true,
         bookingStatus: true,
-        paymentStatus: true,
+        staffPaymentStatus: true,
         totalAmount: true,
         cancellation: true,
         createdAt: true,
@@ -1354,7 +1364,7 @@ const bookingList = async (req, res) => {
         },
       },
       bookingStatus: true,
-      paymentStatus: true,
+      staffPaymentStatus: true,
       totalAmount: true,
       providerEarnings: true,
       platformFee: true,
@@ -1362,6 +1372,19 @@ const bookingList = async (req, res) => {
       date: true,
       createdAt: true,
       updatedAt: true,
+      StaffAssignBooking: {
+        select: {
+          assignedStaffId: true,
+          status: true,
+          assignedStaff: {
+            select: {
+              name: true,
+              email: true,
+              mobile: true,
+            },
+          },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: limit,
@@ -2095,7 +2118,880 @@ const requestServiceUnrestrict = async (req, res) => {
   }
 };
 
+const assignBookingToProvider = async (req, res) => {
+  const providerId = req.user.id;
+
+  try {
+    const { bookingId, staffId } = req.body;
+
+    if (!bookingId || !staffId) {
+      return res.status(400).json({
+        success: false,
+        msg: "BookingId and StaffId are required",
+      });
+    }
+
+    // ----------------------------------
+    // Check Booking Exists
+    // ----------------------------------
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        slotId: true,
+        businessProfileId: true,
+        serviceId: true,
+        trackingStatus: true,
+      },
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        msg: "Booking not found",
+      });
+    }
+
+    // ----------------------------------
+    // Check Staff Exists
+    // ----------------------------------
+
+    const staff = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: { id: true, role: true },
+    });
+
+    if (!staff || staff.role !== "staff") {
+      return res.status(404).json({
+        success: false,
+        msg: "Staff not found",
+      });
+    }
+
+    // ----------------------------------
+    // Prevent Duplicate Assignment
+    // ----------------------------------
+
+    const alreadyAssigned = await prisma.staffAssignBooking.findUnique({
+      where: {
+        bookingId_assignedStaffId: {
+          bookingId,
+          assignedStaffId: staffId,
+        },
+      },
+    });
+
+    if (alreadyAssigned) {
+      return res.status(409).json({
+        success: false,
+        msg: "This booking is already assigned to this staff",
+      });
+    }
+
+    // ----------------------------------
+    // Validate Staff Membership (Accepted)
+    // ----------------------------------
+    const isStaffApproved = await prisma.staffApplications.findFirst({
+      where: {
+        staffId: staffId,
+        businessProfileId: booking.businessProfileId,
+        status: "APPROVED",
+      },
+    });
+
+    if (!isStaffApproved) {
+      return res.status(400).json({
+        success: false,
+        msg: "This staff member is not an approved member of your business.",
+      });
+    }
+
+    // ----------------------------------
+    // Create Assignment Record
+    // ----------------------------------
+
+    const assignment = await prisma.staffAssignBooking.create({
+      data: {
+        bookingId: booking.id,
+        slotId: booking.slotId,
+        businessProfileId: booking.businessProfileId,
+        serviceId: booking.serviceId,
+
+        assignedById: providerId,
+        assignedStaffId: staffId,
+
+        status: "PENDING",
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: "Booking assigned to staff successfully",
+      assignment,
+    });
+  } catch (error) {
+    console.error("Assign Booking Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not assign booking",
+    });
+  }
+};
+
+const getStaffMembers = async (req, res) => {
+  const providerId = req.user.id;
+  const { search, isApproved, page = 1, limit = 10 } = req.query;
+
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+  const skip = (pageNum - 1) * limitNum;
+
+  try {
+    const business = await prisma.businessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business profile not found." });
+    }
+
+    const whereClause = {
+      businessProfileId: business.id,
+    };
+
+    if (isApproved) {
+      whereClause.status =
+        isApproved === "true" ? "APPROVED" : { not: "APPROVED" };
+    }
+
+    if (search) {
+      whereClause.staff = {
+        name: { contains: search, mode: "insensitive" },
+      };
+    }
+
+    const totalCount = await prisma.staffApplications.count({
+      where: whereClause,
+    });
+
+    const applications = await prisma.staffApplications.findMany({
+      where: whereClause,
+      include: {
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            mobile: true,
+            role: true,
+            createdAt: true,
+          },
+        },
+      },
+      skip,
+      take: limitNum,
+      orderBy: { createdAt: "desc" },
+    });
+
+    const formattedStaff = await Promise.all(
+      applications.map(async (app) => {
+        const bookingCount = await prisma.staffAssignBooking.count({
+          where: { assignedStaffId: app.staffId, status: "ACCEPTED" },
+        });
+
+        // Check if staff is currently busy (has active booking)
+        const activeBookings = await prisma.booking.findMany({
+          where: {
+            StaffAssignBooking: {
+              some: {
+                assignedStaffId: app.staffId,
+                status: "ACCEPTED",
+              },
+            },
+            bookingStatus: "CONFIRMED",
+            trackingStatus: {
+              in: ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"],
+            },
+          },
+          include: {
+            service: {
+              select: {
+                name: true,
+              },
+            },
+            user: {
+              select: {
+                name: true,
+              },
+            },
+            slot: {
+              select: {
+                time: true,
+              },
+            },
+          },
+          take: 1,
+        });
+
+        const isBusy = activeBookings.length > 0;
+        const currentBooking = isBusy ? activeBookings[0] : null;
+
+        return {
+          id: app.staffId, // Staff ID
+          applicationId: app.id,
+          user: {
+            name: app.staff.name,
+            email: app.staff.email,
+            mobile: app.staff.mobile,
+          },
+          specialization: ["General"], // Placeholder as schema lacks it
+          employmentType: "BUSINESS_BASED", // Placeholder
+          experience: 1, // Placeholder
+          isActive: app.status === "APPROVED",
+          status: app.status,
+          availability: isBusy ? "BUSY" : "AVAILABLE",
+          currentBooking: currentBooking ? {
+            service: currentBooking.service.name,
+            customer: currentBooking.user.name,
+            time: currentBooking.slot?.time,
+          } : null,
+          _count: { bookings: bookingCount },
+        };
+      }),
+    );
+
+    return res.status(200).json({
+      success: true,
+      staffProfiles: formattedStaff,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limitNum),
+      },
+    });
+  } catch (error) {
+    console.error("Get Staff Error:", error);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
+const deleteStaffMember = async (req, res) => {
+  const providerId = req.user.id;
+  const { staffId } = req.params;
+
+  try {
+    const business = await prisma.businessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business)
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business not found" });
+
+    // Find application
+    const application = await prisma.staffApplications.findFirst({
+      where: { staffId, businessProfileId: business.id },
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        msg: "Staff member not found in your business.",
+      });
+    }
+
+    // Delete application (removes from staff list)
+    await prisma.staffApplications.delete({
+      where: { id: application.id },
+    });
+
+    return res
+      .status(200)
+      .json({ success: true, msg: "Staff removed successfully." });
+  } catch (err) {
+    console.error("Delete Staff Error:", err);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
+const getStaffMemberById = async (req, res) => {
+  const providerId = req.user.id;
+  const { staffId } = req.params;
+
+  try {
+    const business = await prisma.BusinessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business profile not found." });
+    }
+
+    const application = await prisma.staffApplications.findFirst({
+      where: {
+        staffId: staffId,
+        businessProfileId: business.id,
+      },
+      include: {
+        staff: true,
+      },
+    });
+
+    if (!application) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Staff member not found." });
+    }
+
+    const bookingCount = await prisma.staffAssignBooking.count({
+      where: { assignedStaffId: staffId, status: "ACCEPTED" },
+    });
+
+    const serviceAssignmentsCount = await prisma.staffAssignBooking.count({
+      where: { assignedStaffId: staffId },
+    });
+
+    // Fetch services assigned to this staff through bookings
+    const staffBookings = await prisma.staffAssignBooking.findMany({
+      where: {
+        assignedStaffId: staffId,
+        businessProfileId: business.id,
+      },
+      include: {
+        service: {
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            durationInMinutes: true,
+          },
+        },
+      },
+      distinct: ["serviceId"],
+    });
+
+    // Format service assignments
+    const serviceAssignments = staffBookings.map((assignment, index) => ({
+      id: `service-assignment-${index}`,
+      serviceId: assignment.service.id,
+      service: assignment.service,
+      skillLevel: "INTERMEDIATE", // Default value
+      isPrimaryService: index === 0, // First service is primary
+      assignedAt: assignment.createdAt,
+    }));
+
+    // Check if staff is currently busy
+    const activeBookings = await prisma.booking.findMany({
+      where: {
+        StaffAssignBooking: {
+          some: {
+            assignedStaffId: staffId,
+            status: "ACCEPTED",
+          },
+        },
+        businessProfileId: business.id,
+        bookingStatus: "CONFIRMED",
+        trackingStatus: {
+          in: ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"],
+        },
+      },
+      include: {
+        service: {
+          select: {
+            name: true,
+          },
+        },
+        user: {
+          select: {
+            name: true,
+          },
+        },
+        slot: {
+          select: {
+            time: true,
+          },
+        },
+      },
+      take: 1,
+    });
+
+    const isBusy = activeBookings.length > 0;
+    const currentBooking = isBusy ? activeBookings[0] : null;
+
+    // Get staff ratings and reviews
+    const reviews = await prisma.staffReview.findMany({
+      where: {
+        staffId: staffId,
+        businessProfileId: business.id,
+      },
+    });
+
+    const averageRating = reviews.length > 0
+      ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+      : null;
+
+    // Construct the formatted response
+    const formattedStaff = {
+      id: application.staffId,
+      applicationId: application.id,
+      user: {
+        name: application.staff.name,
+        email: application.staff.email,
+        mobile: application.staff.mobile,
+      },
+      specialization: ["General"], // Placeholder
+      employmentType: "BUSINESS_BASED", // Placeholder
+      experience: 1, // Placeholder
+      isActive: application.status === "APPROVED",
+      isApproved: application.status === "APPROVED",
+      status: application.status,
+      createdAt: application.createdAt,
+      availability: isBusy ? "BUSY" : "AVAILABLE",
+      currentBooking: currentBooking ? {
+        service: currentBooking.service.name,
+        customer: currentBooking.user.name,
+        time: currentBooking.slot?.time,
+      } : null,
+      serviceAssignments,
+      rating: averageRating,
+      reviewCount: reviews.length,
+      _count: {
+        bookings: bookingCount,
+        serviceAssignments: serviceAssignmentsCount,
+      },
+    };
+
+    return res.status(200).json({
+      success: true,
+      staffProfile: formattedStaff,
+    });
+  } catch (error) {
+    console.error("Get Staff By ID Error:", error);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
+const updateStaffStatus = async (req, res) => {
+  const providerId = req.user.id;
+  const { staffId } = req.params;
+  const { status } = req.body; // APPROVED, REJECTED, PENDING
+
+  if (!["APPROVED", "REJECTED", "PENDING"].includes(status)) {
+    return res
+      .status(400)
+      .json({ success: false, msg: "Invalid status provided." });
+  }
+
+  try {
+    const business = await prisma.BusinessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business profile not found." });
+    }
+
+    const application = await prisma.staffApplications.findFirst({
+      where: { staffId: staffId, businessProfileId: business.id },
+    });
+
+    if (!application) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Staff application not found." });
+    }
+
+    const updatedApplication = await prisma.staffApplications.update({
+      where: { id: application.id },
+      data: { status: status },
+    });
+
+    // Send Notification to Staff
+    try {
+      if (status === "APPROVED" || status === "REJECTED") {
+        await storeNotification(
+          `Staff Application ${status}`,
+          `Your application to join ${
+            business.businessName
+          } has been ${status.toLowerCase()}.`,
+          staffId,
+          providerId,
+        );
+      }
+    } catch (notifErr) {
+      console.error("Error sending notification:", notifErr);
+    }
+
+    return res.status(200).json({
+      success: true,
+      msg: `Staff status updated to ${status}`,
+      data: updatedApplication,
+    });
+  } catch (error) {
+    console.error("Update Staff Status Error:", error);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
+const getStaffStatusTracking = async (req, res) => {
+  const providerId = req.user.id;
+
+  try {
+    const business = await prisma.businessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business profile not found." });
+    }
+
+    // Get all approved staff
+    const applications = await prisma.staffApplications.findMany({
+      where: {
+        businessProfileId: business.id,
+        status: "APPROVED",
+      },
+      include: {
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            mobile: true,
+          },
+        },
+      },
+    });
+
+    const staffStatuses = await Promise.all(
+      applications.map(async (app) => {
+        // Find active bookings for this staff
+        const activeBookings = await prisma.booking.findMany({
+          where: {
+            StaffAssignBooking: {
+              some: {
+                assignedStaffId: app.staffId,
+                status: "ACCEPTED",
+              },
+            },
+            businessProfileId: business.id,
+            bookingStatus: "CONFIRMED",
+            trackingStatus: {
+              in: ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"],
+            },
+          },
+          include: {
+            service: {
+              select: {
+                name: true,
+              },
+            },
+            user: {
+              select: {
+                name: true,
+                mobile: true,
+              },
+            },
+            slot: {
+              select: {
+                time: true,
+              },
+            },
+            address: {
+              select: {
+                street: true,
+                city: true,
+                state: true,
+              },
+            },
+          },
+          take: 1,
+        });
+
+        const isBusy = activeBookings.length > 0;
+        const currentBooking = isBusy ? activeBookings[0] : null;
+
+        return {
+          staffId: app.staffId,
+          staffName: app.staff.name,
+          staffEmail: app.staff.email,
+          staffMobile: app.staff.mobile,
+          status: isBusy ? "ON_SERVICE" : "AVAILABLE",
+          currentBooking: currentBooking ? {
+            bookingId: currentBooking.id,
+            service: currentBooking.service.name,
+            customer: currentBooking.user.name,
+            customerPhone: currentBooking.user.mobile,
+            time: currentBooking.slot?.time,
+            address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
+            trackingStatus: currentBooking.trackingStatus,
+          } : null,
+        };
+      }),
+    );
+
+    return res.status(200).json({
+      success: true,
+      msg: "Staff status tracking fetched successfully.",
+      staffStatuses,
+    });
+  } catch (error) {
+    console.error("Get Staff Status Tracking Error:", error);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
+// Get staff bookings for a specific staff member (for provider)
+const getStaffBookings = async (req, res) => {
+  const providerId = req.user.id;
+  const { staffId } = req.params;
+
+  try {
+    const business = await prisma.businessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business profile not found." });
+    }
+
+    // Verify staff belongs to this business
+    const application = await prisma.staffApplications.findFirst({
+      where: {
+        staffId: staffId,
+        businessProfileId: business.id,
+      },
+    });
+
+    if (!application) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Staff member not found in your business." });
+    }
+
+    // Get all bookings for this staff
+    const bookings = await prisma.booking.findMany({
+      where: {
+        businessProfileId: business.id,
+        StaffAssignBooking: {
+          some: {
+            assignedStaffId: staffId,
+          },
+        },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+          },
+        },
+        service: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        slot: {
+          select: {
+            id: true,
+            date: true,
+            time: true,
+          },
+        },
+        StaffAssignBooking: {
+          where: {
+            assignedStaffId: staffId,
+          },
+          select: {
+            id: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      bookings,
+    });
+  } catch (error) {
+    console.error("Get Staff Bookings Error:", error);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
+// Unlink staff from business with optional booking transfer
+const unlinkStaffMember = async (req, res) => {
+  const providerId = req.user.id;
+  const { staffId } = req.params;
+  const { transfers } = req.body; // Array of { bookingId, newStaffId }
+
+  try {
+    const business = await prisma.businessProfile.findUnique({
+      where: { userId: providerId },
+    });
+
+    if (!business) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Business profile not found." });
+    }
+
+    // Verify staff belongs to this business
+    const application = await prisma.staffApplications.findFirst({
+      where: {
+        staffId: staffId,
+        businessProfileId: business.id,
+      },
+      include: {
+        staff: true,
+      },
+    });
+
+    if (!application) {
+      return res
+        .status(404)
+        .json({ success: false, msg: "Staff member not found in your business." });
+    }
+
+    // Handle booking transfers if provided
+    if (transfers && transfers.length > 0) {
+      for (const transfer of transfers) {
+        const { bookingId, newStaffId } = transfer;
+
+        if (!newStaffId) {
+          return res
+            .status(400)
+            .json({ success: false, msg: "New staff ID is required for each booking transfer." });
+        }
+
+        // Verify new staff belongs to this business
+        const newStaffApplication = await prisma.staffApplications.findFirst({
+          where: {
+            staffId: newStaffId,
+            businessProfileId: business.id,
+            status: "APPROVED",
+          },
+        });
+
+        if (!newStaffApplication) {
+          return res
+            .status(400)
+            .json({ success: false, msg: "Replacement staff member not found or not approved." });
+        }
+
+        // Update the staff assignment
+        await prisma.staffAssignBooking.updateMany({
+          where: {
+            bookingId: bookingId,
+            assignedStaffId: staffId,
+          },
+          data: {
+            assignedStaffId: newStaffId,
+          },
+        });
+
+        // Send notification to new staff
+        try {
+          await storeNotification(
+            "New Booking Assignment",
+            `You have been assigned a new booking for ${business.businessName}.`,
+            newStaffId,
+            providerId,
+          );
+        } catch (notifErr) {
+          console.error("Error sending notification to new staff:", notifErr);
+        }
+      }
+    }
+
+    // Check for any remaining assignments
+    const remainingAssignments = await prisma.staffAssignBooking.count({
+      where: {
+        assignedStaffId: staffId,
+        status: {
+          in: ["PENDING", "ACCEPTED"],
+        },
+      },
+    });
+
+    if (remainingAssignments > 0) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          msg: `Cannot unlink staff. They still have ${remainingAssignments} active booking(s) that need to be transferred.`
+        });
+    }
+
+    // Create an entry in StaffExistFromBusiness for record keeping
+    await prisma.staffExistFromBusiness.create({
+      data: {
+        staffId: staffId,
+        businessProfileId: business.id,
+        reason: "Unlinked by provider",
+        status: "COMPLETED",
+        message: {
+          unlinkedBy: providerId,
+          unlinkedAt: new Date().toISOString(),
+          transfersProcessed: transfers?.length || 0,
+        },
+      },
+    });
+
+    // Delete the staff application (unlink from business)
+    await prisma.staffApplications.delete({
+      where: { id: application.id },
+    });
+
+    // Send notification to staff
+    try {
+      await storeNotification(
+        "Removed from Business",
+        `You have been removed from ${business.businessName}.`,
+        staffId,
+        providerId,
+      );
+    } catch (notifErr) {
+      console.error("Error sending notification to staff:", notifErr);
+    }
+
+    return res
+      .status(200)
+      .json({ success: true, msg: "Staff unlinked successfully." });
+  } catch (error) {
+    console.error("Unlink Staff Error:", error);
+    return res.status(500).json({ success: false, msg: "Server Error" });
+  }
+};
+
 module.exports = {
+  getStaffMembers,
+  deleteStaffMember,
+  getStaffMemberById,
+  updateStaffStatus,
+  getStaffStatusTracking,
+  getStaffBookings,
+  unlinkStaffMember,
   // BUSINESS
   createBusiness,
   getBusinessProfile,
@@ -2141,4 +3037,6 @@ module.exports = {
   // Request Unrestrict
   requestUnrestrict,
   requestServiceUnrestrict,
+
+  assignBookingToProvider,
 };
