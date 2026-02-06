@@ -679,15 +679,15 @@ const paymentRequestProviderEmail = (staffName, serviceName, requestedAmount, st
 `;
 
 /**
- * Staff Payment Received Email
+ * Staff Payment Received Email (With Invoice)
  */
-const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percentage, providerEarnings, transferId, paymentDate) => `
+const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percentage, providerEarnings, transferId, paymentDate, bookingId, providerName) => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Payment Received</title>
+  <title>Payment Received - Invoice</title>
   <style>
     body {
       margin: 0;
@@ -696,7 +696,7 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
       background-color: #f4f4f4;
     }
     .container {
-      max-width: 600px;
+      max-width: 700px;
       margin: 0 auto;
       background-color: #ffffff;
       border-radius: 8px;
@@ -716,6 +716,23 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
     }
     .content {
       padding: 40px 30px;
+    }
+    .invoice-header {
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 25px;
+      border-left: 4px solid #4caf50;
+    }
+    .invoice-number {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    .invoice-id {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
     }
     .greeting {
       font-size: 18px;
@@ -738,20 +755,20 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
     .payment-details {
       background-color: #e8f5e9;
       border-left: 4px solid #4caf50;
-      padding: 20px;
+      padding: 25px;
       margin: 25px 0;
       border-radius: 4px;
     }
     .payment-details h3 {
-      margin: 0 0 15px 0;
+      margin: 0 0 20px 0;
       color: #2e7d32;
       font-size: 18px;
     }
     .detail-row {
       display: flex;
       justify-content: space-between;
-      padding: 8px 0;
-      border-bottom: 1px solid #eeeeee;
+      padding: 10px 0;
+      border-bottom: 1px solid #e0e0e0;
     }
     .detail-row:last-child {
       border-bottom: none;
@@ -762,6 +779,20 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
     }
     .detail-value {
       color: #333333;
+      font-weight: 500;
+    }
+    .total-row {
+      background-color: #2e7d32;
+      color: white;
+      margin: 20px -25px -25px -25px;
+      padding: 15px 25px;
+      border-bottom-left-radius: 4px;
+      border-bottom-right-radius: 4px;
+    }
+    .total-row .detail-label,
+    .total-row .detail-value {
+      color: white;
+      font-size: 18px;
     }
     .footer {
       background-color: #f4f4f4;
@@ -775,20 +806,36 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
       font-size: 60px;
       margin: 20px 0;
     }
+    .info-box {
+      background-color: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #1565c0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>💵 Payment Received!</h1>
+      <h1>💵 Payment Received - Invoice</h1>
     </div>
     <div class="content">
       <div class="success-icon">✅</div>
+
+      <div class="invoice-header">
+        <div class="invoice-number">PAYMENT INVOICE</div>
+        <div class="invoice-id">Invoice #INV-${transferId?.slice(0, 8).toUpperCase() || transferId}</div>
+        <div class="invoice-number">Date: ${paymentDate}</div>
+      </div>
+
       <div class="greeting">
         Great news, ${staffName}!
       </div>
       <div class="message">
-        Your payment request has been approved by the provider. The amount has been transferred to your Stripe account.
+        Your payment request has been approved by <strong>${providerName || "Provider"}</strong>. The amount has been transferred to your account.
       </div>
 
       <div class="payment-amount">
@@ -796,10 +843,14 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
       </div>
 
       <div class="payment-details">
-        <h3>💳 Payment Breakdown</h3>
+        <h3>💳 Payment Invoice</h3>
         <div class="detail-row">
-          <span class="detail-label">Service:</span>
+          <span class="detail-label">Service Provided:</span>
           <span class="detail-value">${serviceName}</span>
+        </div>
+        <div class="detail-row">
+          <span class="detail-label">Booking ID:</span>
+          <span class="detail-value">#${bookingId}</span>
         </div>
         <div class="detail-row">
           <span class="detail-label">Provider Earnings:</span>
@@ -810,22 +861,31 @@ const staffPaymentReceivedEmail = (staffName, serviceName, staffAmount, percenta
           <span class="detail-value">${percentage}%</span>
         </div>
         <div class="detail-row">
-          <span class="detail-label">Payment Date:</span>
-          <span class="detail-value">${paymentDate}</span>
-        </div>
-        <div class="detail-row">
           <span class="detail-label">Transfer ID:</span>
           <span class="detail-value">${transferId}</span>
         </div>
+        <div class="detail-row">
+          <span class="detail-label">Payment Date:</span>
+          <span class="detail-value">${paymentDate}</span>
+        </div>
+        <div class="total-row detail-row">
+          <span class="detail-label">Total Amount Received:</span>
+          <span class="detail-value">₹${staffAmount}</span>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>Important:</strong> This payment will appear in your connected bank account within 2-3 business days, depending on your bank's processing time.
       </div>
 
       <div class="message">
-        Thank you for your excellent work! The payment will appear in your connected bank account within 2-3 business days.
+        Thank you for your excellent work! Keep providing great service to our customers.
       </div>
     </div>
     <div class="footer">
       <p>© ${new Date().getFullYear()} Home Service Platform. All rights reserved.</p>
       <p>This is an automated email. Please do not reply directly.</p>
+      <p>For any queries, contact our support team.</p>
     </div>
   </div>
 </body>

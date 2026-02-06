@@ -15,6 +15,17 @@ route.put("/profile", StaffController.updateStaffProfile);
 route.put("/availability", StaffController.updateStaffAvailability);
 route.get("/providers", StaffController.getAllProviders);
 
+/* ---------------- STAFF LEAVE MANAGEMENT ROUTES ---------------- */
+route.post("/leave/request", StaffController.createStaffLeaveRequest);
+route.get("/leave", StaffController.getStaffLeaveRequests);
+
+/* ---------------- STAFF WEEKLY SCHEDULE ROUTES ---------------- */
+route.post("/schedule/set", StaffController.setWeeklySchedule);
+route.get("/schedule", StaffController.getWeeklySchedule);
+
+/* ---------------- STAFF AVAILABILITY CHECK ROUTES ---------------- */
+route.get("/availability/check", StaffController.checkStaffAvailability);
+
 // Stafff Application for Businesses
 route.get("/applications", StaffController.getStaffApplications);
 route.post("/applications/apply", StaffController.applyForStaffApplication);

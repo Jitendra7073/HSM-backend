@@ -7,6 +7,12 @@ const {
   rejectPaymentRequest,
   getPaymentHistory,
   getPaymentStats,
+  getProviderStripeOnboardingLink,
+  checkProviderStripeAccountStatus,
+  getProviderBankAccountDetails,
+  getProviderBankAccounts,
+  syncProviderBankAccounts,
+  refreshProviderStripeStatus,
 } = require("../controllers/provider-payment.controller");
 const { authenticateProvider } = require("../middleware/auth");
 
@@ -62,5 +68,47 @@ router.get("/history", authenticateProvider, getPaymentHistory);
  * @access  Provider (Private)
  */
 router.get("/stats", authenticateProvider, getPaymentStats);
+
+/**
+ * @route   GET /api/v1/provider/stripe/onboarding
+ * @desc    Get Stripe onboarding link for provider to connect their bank account
+ * @access  Provider (Private)
+ */
+router.get("/stripe/onboarding", authenticateProvider, getProviderStripeOnboardingLink);
+
+/**
+ * @route   GET /api/v1/provider/payments/stripe/status
+ * @desc    Check provider's Stripe account connection status
+ * @access  Provider (Private)
+ */
+router.get("/payments/stripe/status", authenticateProvider, checkProviderStripeAccountStatus);
+
+/**
+ * @route   GET /api/v1/provider/stripe/bank-account
+ * @desc    Get provider's bank account details from Stripe
+ * @access  Provider (Private)
+ */
+router.get("/stripe/bank-account", authenticateProvider, getProviderBankAccountDetails);
+
+/**
+ * @route   GET /api/v1/provider/bank-accounts
+ * @desc    Get provider's bank accounts from database
+ * @access  Provider (Private)
+ */
+router.get("/bank-accounts", authenticateProvider, getProviderBankAccounts);
+
+/**
+ * @route   POST /api/v1/provider/bank-accounts/sync
+ * @desc    Sync bank accounts from Stripe to database
+ * @access  Provider (Private)
+ */
+router.post("/bank-accounts/sync", authenticateProvider, syncProviderBankAccounts);
+
+/**
+ * @route   POST /api/v1/provider/stripe/refresh
+ * @desc    Refresh Stripe account status and sync bank accounts
+ * @access  Provider (Private)
+ */
+router.post("/stripe/refresh", authenticateProvider, refreshProviderStripeStatus);
 
 module.exports = router;

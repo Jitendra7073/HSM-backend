@@ -551,6 +551,16 @@ const cancelBooking = async (req, res) => {
         service: true,
         slot: true,
         businessProfile: { include: { user: true } },
+        StaffAssignBooking: {
+          where: {
+            status: {
+              in: ["PENDING", "ACCEPTED"],
+            },
+          },
+          include: {
+            assignedStaff: true,
+          },
+        },
       },
     });
 
@@ -573,6 +583,25 @@ const cancelBooking = async (req, res) => {
       return res.status(409).json({
         success: false,
         msg: "Booking already cancelled.",
+      });
+    }
+
+    /* ---------------- CHECK STAFF TRACKING STATUS ---------------- */
+    // If staff is assigned and tracking has progressed to last 2 steps, prevent cancellation
+    const restrictedTrackingStatuses = ["SERVICE_STARTED", "COMPLETED"];
+
+    if (
+      booking.StaffAssignBooking.length > 0 &&
+      booking.StaffAssignBooking.some(
+        (assignment) => assignment.status === "ACCEPTED"
+      ) &&
+      restrictedTrackingStatuses.includes(booking.trackingStatus)
+    ) {
+      return res.status(400).json({
+        success: false,
+        msg: "You are not eligible to cancel this booking because the booking is almost at completion state.",
+        cannotCancel: true,
+        trackingStatus: booking.trackingStatus,
       });
     }
 
@@ -673,6 +702,21 @@ const cancelBooking = async (req, res) => {
           platformFee: 0,
         },
       });
+
+      // Update staff assignment status to CANCELLED if staff is assigned
+      if (booking.StaffAssignBooking.length > 0) {
+        await tx.staffAssignBooking.updateMany({
+          where: {
+            bookingId: booking.id,
+            status: {
+              in: ["PENDING", "ACCEPTED"],
+            },
+          },
+          data: {
+            status: "CANCELLED",
+          },
+        });
+      }
     });
 
     /* ---------------- PROCESS STRIPE REFUND IMMEDIATELY ---------------- */
@@ -846,6 +890,47 @@ const cancelBooking = async (req, res) => {
       }
     } catch (err) {
       console.error("Provider push error:", err.message);
+    }
+
+    /* ---------- STAFF ---------- */
+    // Notify staff members assigned to this booking
+    if (booking.StaffAssignBooking.length > 0) {
+      for (const assignment of booking.StaffAssignBooking) {
+        const staffId = assignment.assignedStaffId;
+
+        const staffPayload = {
+          title: "Booking Cancelled by Customer",
+          body: `Customer has cancelled the booking for ${booking.service.name}. This assignment has been cancelled.`,
+          type: "BOOKING_CANCELLED",
+        };
+
+        await storeNotification(
+          staffPayload.title,
+          staffPayload.body,
+          staffId,
+          customerId,
+        );
+
+        try {
+          const staffTokens = await prisma.FCMToken.findMany({
+            where: { userId: staffId, isActive: true },
+          });
+
+          if (staffTokens.length > 0) {
+            await NotificationService.sendNotification(
+              staffTokens,
+              staffPayload.title,
+              staffPayload.body,
+              {
+                type: staffPayload.type,
+                tag: `booking_cancel_${booking.id}`,
+              },
+            );
+          }
+        } catch (err) {
+          console.error(`Staff ${staffId} push error:`, err.message);
+        }
+      }
     }
 
     // Log booking cancellation to database for admin tracking

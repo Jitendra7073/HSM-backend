@@ -14,6 +14,7 @@ const getUserProfile = async (req, res) => {
         email: true,
         mobile: true,
         role: true,
+        availability: true,
         createdAt: true,
         addresses: true, // include all addresses
         businessProfile: true,

@@ -2250,8 +2250,27 @@ const assignBookingToProvider = async (req, res) => {
     }
 
     // ----------------------------------
-    // Check Staff Availability for Date/Time
+    // COMPREHENSIVE STAFF AVAILABILITY CHECK
     // ----------------------------------
+
+    // 1. Check staff's current manual availability status
+    const staffUser = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: { availability: true, name: true },
+    });
+
+    if (staffUser?.availability === "NOT_AVAILABLE") {
+      return res.status(409).json({
+        success: false,
+        msg: "Staff member is currently marked as NOT AVAILABLE. Please contact the staff or choose a different staff member.",
+        availabilityConflict: {
+          type: "MANUAL_NOT_AVAILABLE",
+          reason: "Staff has manually set themselves as not available",
+        },
+      });
+    }
+
+    // 2. Get booking details for further checks
     const bookingDetails = await prisma.booking.findUnique({
       where: { id: bookingId },
       select: {
@@ -2272,6 +2291,125 @@ const assignBookingToProvider = async (req, res) => {
         },
       },
     });
+
+    if (!bookingDetails) {
+      return res.status(404).json({
+        success: false,
+        msg: "Booking details not found",
+      });
+    }
+
+    // 3. Check if staff is ON_WORK (actively working on another booking)
+    if (staffUser?.availability === "ON_WORK") {
+      return res.status(409).json({
+        success: false,
+        msg: "Staff member is currently working on an active booking. They will become available after completing the current booking.",
+        availabilityConflict: {
+          type: "ON_WORK",
+          reason: "Staff is actively working on another booking",
+        },
+      });
+    }
+
+    // 4. Check for approved leave during the booking date
+    // Normalize dates to compare only the date parts (ignore time)
+    const bookingDateOnly = new Date(bookingDetails.date);
+    bookingDateOnly.setHours(0, 0, 0, 0);
+
+    const approvedLeave = await prisma.staffLeave.findFirst({
+      where: {
+        staffId,
+        status: "APPROVED",
+        // Check if booking date falls within leave period
+        // Leave start date should be before or on booking date
+        // Leave end date should be after or on booking date
+        AND: [
+          {
+            startDate: {
+              lte: new Date(new Date(bookingDetails.date).setHours(23, 59, 59, 999)),
+            },
+          },
+          {
+            endDate: {
+              gte: new Date(new Date(bookingDetails.date).setHours(0, 0, 0, 0)),
+            },
+          },
+        ],
+      },
+    });
+
+    if (approvedLeave) {
+      return res.status(409).json({
+        success: false,
+        msg: `Staff member is on leave from ${new Date(approvedLeave.startDate).toLocaleDateString()} to ${new Date(approvedLeave.endDate).toLocaleDateString()}. Please choose a different staff member or date.`,
+        availabilityConflict: {
+          type: "LEAVE_PERIOD",
+          reason: "Staff is on approved leave",
+          leaveDetails: {
+            startDate: approvedLeave.startDate,
+            endDate: approvedLeave.endDate,
+            leaveType: approvedLeave.leaveType,
+          },
+        },
+      });
+    }
+
+    // 5. Check weekly schedule (if configured)
+    const dayOfWeek = bookingDateOnly.getDay();
+    const weeklySchedule = await prisma.staffWeeklySchedule.findUnique({
+      where: {
+        staffId_dayOfWeek: {
+          staffId,
+          dayOfWeek,
+        },
+      },
+    });
+
+    if (weeklySchedule && !weeklySchedule.isAvailable) {
+      return res.status(409).json({
+        success: false,
+        msg: `Staff member is not available on this day according to their weekly schedule.`,
+        availabilityConflict: {
+          type: "WEEKLY_SCHEDULE",
+          reason: "Staff is not available on this day",
+          schedule: {
+            dayOfWeek: weeklySchedule.dayOfWeek,
+            isAvailable: weeklySchedule.isAvailable,
+          },
+        },
+      });
+    }
+
+    // 6. Check if booking time is within working hours (if weekly schedule is set)
+    if (weeklySchedule && weeklySchedule.isAvailable && bookingDetails.slot?.time) {
+      const [bookingHour, bookingMinute] = bookingDetails.slot.time.split(":").map(Number);
+      const [startHour, startMinute] = weeklySchedule.startTime.split(":").map(Number);
+      const [endHour, endMinute] = weeklySchedule.endTime.split(":").map(Number);
+
+      const bookingTimeMinutes = bookingHour * 60 + bookingMinute;
+      const startTimeMinutes = startHour * 60 + startMinute;
+      const endTimeMinutes = endHour * 60 + endMinute;
+
+      if (bookingTimeMinutes < startTimeMinutes || bookingTimeMinutes > endTimeMinutes) {
+        return res.status(409).json({
+          success: false,
+          msg: `Booking time ${bookingDetails.slot.time} is outside staff's working hours (${weeklySchedule.startTime} - ${weeklySchedule.endTime}). Please choose a different time slot.`,
+          availabilityConflict: {
+            type: "WEEKLY_SCHEDULE_HOURS",
+            reason: "Booking time is outside working hours",
+            schedule: {
+              dayOfWeek: weeklySchedule.dayOfWeek,
+              startTime: weeklySchedule.startTime,
+              endTime: weeklySchedule.endTime,
+            },
+          },
+        });
+      }
+    }
+
+    // ----------------------------------
+    // Check Time Conflicts with Existing Bookings
+    // ----------------------------------
 
     // Find existing bookings for this staff at the same date/time
     const existingBookings = await prisma.booking.findMany({
@@ -2480,11 +2618,44 @@ const getStaffMembers = async (req, res) => {
         const hasActiveBooking = activeBookings.length > 0;
         const currentBooking = hasActiveBooking ? activeBookings[0] : null;
 
-        // Use staff's manual availability status, but override to BUSY if they have an active booking
-        const availability =
-          app.staff.availability === "BUSY" || hasActiveBooking
-            ? "BUSY"
-            : "AVAILABLE";
+        // Check if staff is on approved leave today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const approvedLeave = await prisma.staffLeave.findFirst({
+          where: {
+            staffId: app.staffId,
+            status: "APPROVED",
+            startDate: { lte: new Date(new Date().setHours(23, 59, 59, 999)) },
+            endDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+          },
+        });
+
+        // Determine availability based on multiple factors
+        let availability = app.staff.availability;
+
+        // Priority 1: If on approved leave today, set to NOT_AVAILABLE (not changeable)
+        if (approvedLeave) {
+          availability = "NOT_AVAILABLE";
+        }
+        // Priority 2: If has active booking in progress, set to ON_WORK
+        else if (hasActiveBooking && currentBooking) {
+          if (currentBooking.trackingStatus === "SERVICE_STARTED") {
+            availability = "ON_WORK";
+          } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+                     currentBooking.trackingStatus === "BOOKING_STARTED") {
+            availability = "ON_WORK";
+          } else {
+            availability = "BUSY";
+          }
+        }
+        // Priority 3: If staff manually set to NOT_AVAILABLE and not on leave, keep it
+        else if (app.staff.availability === "NOT_AVAILABLE") {
+          availability = "NOT_AVAILABLE";
+        }
+        // Priority 4: Otherwise use manual availability or default to AVAILABLE
+        else if (app.staff.availability === "AVAILABLE" || !app.staff.availability) {
+          availability = "AVAILABLE";
+        }
 
         return {
           id: app.staffId, // Staff ID
@@ -2674,6 +2845,18 @@ const getStaffMemberById = async (req, res) => {
     const isBusy = activeBookings.length > 0;
     const currentBooking = isBusy ? activeBookings[0] : null;
 
+    // Check if staff is on approved leave today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const approvedLeave = await prisma.staffLeave.findFirst({
+      where: {
+        staffId: staffId,
+        status: "APPROVED",
+        startDate: { lte: new Date(new Date().setHours(23, 59, 59, 999)) },
+        endDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      },
+    });
+
     // Get staff ratings and reviews
     const reviews = await prisma.staffReview.findMany({
       where: {
@@ -2686,6 +2869,33 @@ const getStaffMemberById = async (req, res) => {
       reviews.length > 0
         ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
         : null;
+
+    // Determine availability based on multiple factors
+    let finalAvailability = application.staff.availability;
+
+    // Priority 1: If on approved leave today, set to NOT_AVAILABLE
+    if (approvedLeave) {
+      finalAvailability = "NOT_AVAILABLE";
+    }
+    // Priority 2: If has active booking in progress, set to ON_WORK or BUSY
+    else if (activeBookings.length > 0 && currentBooking) {
+      if (currentBooking.trackingStatus === "SERVICE_STARTED") {
+        finalAvailability = "ON_WORK";
+      } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+                 currentBooking.trackingStatus === "BOOKING_STARTED") {
+        finalAvailability = "ON_WORK";
+      } else {
+        finalAvailability = "BUSY";
+      }
+    }
+    // Priority 3: If staff manually set to NOT_AVAILABLE and not on leave
+    else if (application.staff.availability === "NOT_AVAILABLE") {
+      finalAvailability = "NOT_AVAILABLE";
+    }
+    // Priority 4: Otherwise use manual availability or default to AVAILABLE
+    else if (application.staff.availability === "AVAILABLE" || !application.staff.availability) {
+      finalAvailability = "AVAILABLE";
+    }
 
     // Construct the formatted response
     const formattedStaff = {
@@ -2703,7 +2913,7 @@ const getStaffMemberById = async (req, res) => {
       isApproved: application.status === "APPROVED",
       status: application.status,
       createdAt: application.createdAt,
-      availability: isBusy ? "BUSY" : "AVAILABLE",
+      availability: finalAvailability,
       currentBooking: currentBooking
         ? {
             service: currentBooking.service.name,
@@ -3310,6 +3520,45 @@ const getStaffDetailsForProvider = async (req, res) => {
       staff.availability === "BUSY" || activeBookings.length > 0;
     const currentBooking = isBusy ? activeBookings[0] : null;
 
+    // Check if staff is on approved leave today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const approvedLeave = await prisma.staffLeave.findFirst({
+      where: {
+        staffId: staffId,
+        status: "APPROVED",
+        startDate: { lte: new Date(new Date().setHours(23, 59, 59, 999)) },
+        endDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      },
+    });
+
+    // Determine availability based on multiple factors
+    let finalAvailability = staff.availability;
+
+    // Priority 1: If on approved leave today, set to NOT_AVAILABLE
+    if (approvedLeave) {
+      finalAvailability = "NOT_AVAILABLE";
+    }
+    // Priority 2: If has active booking in progress, set to ON_WORK or BUSY
+    else if (activeBookings.length > 0 && currentBooking) {
+      if (currentBooking.trackingStatus === "SERVICE_STARTED") {
+        finalAvailability = "ON_WORK";
+      } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+                 currentBooking.trackingStatus === "BOOKING_STARTED") {
+        finalAvailability = "ON_WORK";
+      } else {
+        finalAvailability = "BUSY";
+      }
+    }
+    // Priority 3: If staff manually set to NOT_AVAILABLE and not on leave
+    else if (staff.availability === "NOT_AVAILABLE") {
+      finalAvailability = "NOT_AVAILABLE";
+    }
+    // Priority 4: Otherwise use manual availability or default to AVAILABLE
+    else if (staff.availability === "AVAILABLE" || !staff.availability) {
+      finalAvailability = "AVAILABLE";
+    }
+
     return res.status(200).json({
       success: true,
       msg: "Staff details fetched successfully.",
@@ -3317,7 +3566,7 @@ const getStaffDetailsForProvider = async (req, res) => {
         ...staff,
         businessName: staffAssignment.businessProfile.businessName,
         joinedAt: staffAssignment.createdAt,
-        availability: isBusy ? "BUSY" : "AVAILABLE",
+        availability: finalAvailability,
         currentBooking: currentBooking
           ? {
               service: currentBooking.service.name,

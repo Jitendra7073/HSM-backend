@@ -1,5 +1,7 @@
 const prisma = require("../prismaClient");
 const { sendMail } = require("../utils/sendmail");
+const NotificationService = require("../service/notification-service");
+const { storeNotification } = require("./notification.controller");
 const {
   serviceCompletionCustomerEmail,
   serviceCompletionProviderEmail,
@@ -410,7 +412,7 @@ const requestForExist = async (req, res) => {
 
 const getStaffBookings = async (req, res) => {
   const staffId = req.user.id;
-  const status = req.query.status; // completed, ongoing, upcoming
+  const status = req.query.status; // completed, ongoing, upcoming, cancelled
 
   try {
     const whereClause = {
@@ -439,6 +441,8 @@ const getStaffBookings = async (req, res) => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       whereClause.date = { gte: today.toISOString().split("T")[0] };
+    } else if (status === "cancelled") {
+      whereClause.bookingStatus = "CANCELLED";
     }
 
     const bookings = await prisma.booking.findMany({
@@ -671,7 +675,16 @@ const updateBookingTrackingStatus = async (req, res) => {
       });
     }
 
-    // 3. Validate status transition
+    // 3. Check if booking is cancelled - prevent tracking updates
+    if (booking.bookingStatus === "CANCELLED") {
+      return res.status(400).json({
+        success: false,
+        msg: "Cannot update tracking status. This booking has been cancelled by the customer.",
+        bookingCancelled: true,
+      });
+    }
+
+    // 4. Validate status transition
     const validStatuses = [
       "NOT_STARTED",
       "BOOKING_STARTED",
@@ -733,10 +746,10 @@ const updateBookingTrackingStatus = async (req, res) => {
     ];
 
     if (activeServiceStatuses.includes(status)) {
-      // Set staff to BUSY when they start a service
+      // Set staff to ON_WORK when they actively start working on a booking
       await prisma.user.update({
         where: { id: staffId },
-        data: { availability: "BUSY" },
+        data: { availability: "ON_WORK" },
       });
     } else if (status === "COMPLETED") {
       // Set staff to AVAILABLE when they complete the service
@@ -747,6 +760,9 @@ const updateBookingTrackingStatus = async (req, res) => {
           StaffAssignBooking: {
             some: {
               assignedStaffId: staffId,
+              status: {
+                in: ["PENDING", "ACCEPTED"],
+              },
             },
           },
           bookingStatus: "CONFIRMED",
@@ -757,7 +773,13 @@ const updateBookingTrackingStatus = async (req, res) => {
       });
 
       // Only set to AVAILABLE if no other active bookings
-      if (!otherActiveBookings) {
+      // Also check if staff is NOT marked as NOT_AVAILABLE manually
+      const staff = await prisma.user.findUnique({
+        where: { id: staffId },
+        select: { availability: true },
+      });
+
+      if (!otherActiveBookings && staff?.availability !== "NOT_AVAILABLE") {
         await prisma.user.update({
           where: { id: staffId },
           data: { availability: "AVAILABLE" },
@@ -1104,9 +1126,47 @@ const getStaffDetailsForProvider = async (req, res) => {
       );
     });
 
-    const isBusy =
-      staff.availability === "BUSY" || activeBookings.length > 0;
+    const isBusy = staff.availability === "BUSY" || activeBookings.length > 0;
     const currentBooking = isBusy ? activeBookings[0] : null;
+
+    // Check if staff is on approved leave today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const approvedLeave = await prisma.staffLeave.findFirst({
+      where: {
+        staffId: staff.id,
+        status: "APPROVED",
+        startDate: { lte: new Date(new Date().setHours(23, 59, 59, 999)) },
+        endDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      },
+    });
+
+    // Determine availability based on multiple factors
+    let finalAvailability = staff.availability;
+
+    // Priority 1: If on approved leave today, set to NOT_AVAILABLE
+    if (approvedLeave) {
+      finalAvailability = "NOT_AVAILABLE";
+    }
+    // Priority 2: If has active booking in progress, set to ON_WORK or BUSY
+    else if (activeBookings.length > 0 && currentBooking) {
+      if (currentBooking.trackingStatus === "SERVICE_STARTED") {
+        finalAvailability = "ON_WORK";
+      } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+                 currentBooking.trackingStatus === "BOOKING_STARTED") {
+        finalAvailability = "ON_WORK";
+      } else {
+        finalAvailability = "BUSY";
+      }
+    }
+    // Priority 3: If staff manually set to NOT_AVAILABLE and not on leave
+    else if (staff.availability === "NOT_AVAILABLE") {
+      finalAvailability = "NOT_AVAILABLE";
+    }
+    // Priority 4: Otherwise use manual availability or default to AVAILABLE
+    else if (staff.availability === "AVAILABLE" || !staff.availability) {
+      finalAvailability = "AVAILABLE";
+    }
 
     return res.status(200).json({
       success: true,
@@ -1115,7 +1175,7 @@ const getStaffDetailsForProvider = async (req, res) => {
         ...staff,
         businessName: staffAssignment.businessProfile.businessName,
         joinedAt: staffAssignment.createdAt,
-        availability: isBusy ? "BUSY" : "AVAILABLE",
+        availability: finalAvailability,
         currentBooking: currentBooking
           ? {
               service: currentBooking.service.name,
@@ -1405,13 +1465,48 @@ const updateStaffAvailability = async (req, res) => {
   const { availability } = req.body;
 
   try {
-    // Validate availability value
-    const validAvailability = ["AVAILABLE", "BUSY"];
+    // Validate availability value - only allow manual toggle between AVAILABLE and NOT_AVAILABLE
+    // ON_WORK and BUSY are managed automatically by the system
+    const validAvailability = ["AVAILABLE", "NOT_AVAILABLE"];
     if (!validAvailability.includes(availability)) {
       return res.status(400).json({
         success: false,
-        msg: "Invalid availability status. Must be AVAILABLE or BUSY",
+        msg: "Invalid availability status. Must be AVAILABLE or NOT_AVAILABLE. ON_WORK and BUSY are managed automatically by the system based on bookings.",
       });
+    }
+
+    // Check if staff has any active bookings before setting to AVAILABLE
+    if (availability === "AVAILABLE") {
+      const activeServiceStatuses = [
+        "BOOKING_STARTED",
+        "PROVIDER_ON_THE_WAY",
+        "SERVICE_STARTED",
+      ];
+
+      const activeBookings = await prisma.booking.findFirst({
+        where: {
+          StaffAssignBooking: {
+            some: {
+              assignedStaffId: staffId,
+              status: {
+                in: ["PENDING", "ACCEPTED"],
+              },
+            },
+          },
+          bookingStatus: "CONFIRMED",
+          trackingStatus: {
+            in: activeServiceStatuses,
+          },
+        },
+      });
+
+      if (activeBookings) {
+        return res.status(400).json({
+          success: false,
+          msg: "Cannot set to AVAILABLE while you have active bookings. Please complete your current bookings first.",
+          hasActiveBookings: true,
+        });
+      }
     }
 
     // Update staff availability
@@ -1430,7 +1525,7 @@ const updateStaffAvailability = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      msg: "Availability updated successfully.",
+      msg: `Staff availability updated to ${availability}.`,
       staff: updatedStaff,
     });
   } catch (error) {
@@ -1438,6 +1533,689 @@ const updateStaffAvailability = async (req, res) => {
     return res.status(500).json({
       success: false,
       msg: "Server Error: Could not update availability.",
+    });
+  }
+};
+
+/* ---------------- STAFF LEAVE MANAGEMENT ---------------- */
+
+const createStaffLeaveRequest = async (req, res) => {
+  const staffId = req.user.id;
+  const { startDate, endDate, startTime, endTime, leaveType, reason } =
+    req.body;
+
+  try {
+    // Validate required fields
+    if (!startDate || !endDate || !leaveType) {
+      return res.status(400).json({
+        success: false,
+        msg: "Start date, end date, and leave type are required.",
+      });
+    }
+
+    // Validate dates
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start > end) {
+      return res.status(400).json({
+        success: false,
+        msg: "Start date cannot be after end date.",
+      });
+    }
+
+    // Check for overlapping leave requests
+    const overlappingLeave = await prisma.staffLeave.findFirst({
+      where: {
+        staffId,
+        status: { in: ["PENDING", "APPROVED"] },
+        OR: [
+          {
+            startDate: { lte: end },
+            endDate: { gte: start },
+          },
+        ],
+      },
+    });
+
+    if (overlappingLeave) {
+      return res.status(409).json({
+        success: false,
+        msg: "You already have a leave request during this period.",
+      });
+    }
+
+    // Create leave request
+    const leave = await prisma.staffLeave.create({
+      data: {
+        staffId,
+        startDate: start,
+        endDate: end,
+        startTime,
+        endTime,
+        leaveType,
+        reason,
+        status: "PENDING",
+      },
+      include: {
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      msg: "Leave request created successfully. Waiting for provider approval.",
+      leave,
+    });
+  } catch (error) {
+    console.error("createStaffLeaveRequest error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not create leave request.",
+    });
+  }
+};
+
+const getStaffLeaveRequests = async (req, res) => {
+  const staffId = req.user.id;
+
+  try {
+    const leaves = await prisma.staffLeave.findMany({
+      where: { staffId },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.status(200).json({
+      success: true,
+      leaves,
+    });
+  } catch (error) {
+    console.error("getStaffLeaveRequests error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not fetch leave requests.",
+    });
+  }
+};
+
+/* ---------------- STAFF WEEKLY SCHEDULE MANAGEMENT ---------------- */
+
+const setWeeklySchedule = async (req, res) => {
+  const staffId = req.user.id;
+  const { schedule } = req.body; // Array of { dayOfWeek, startTime, endTime, isAvailable }
+
+  try {
+    // Validate schedule array
+    if (!Array.isArray(schedule) || schedule.length === 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Schedule must be a non-empty array.",
+      });
+    }
+
+    // Validate dayOfWeek range (0-6)
+    const invalidDay = schedule.find((s) => s.dayOfWeek < 0 || s.dayOfWeek > 6);
+    if (invalidDay) {
+      return res.status(400).json({
+        success: false,
+        msg: "dayOfWeek must be between 0 (Sunday) and 6 (Saturday).",
+      });
+    }
+
+    // Use transaction to upsert all schedule entries
+    await prisma.$transaction(async (tx) => {
+      for (const entry of schedule) {
+        await tx.staffWeeklySchedule.upsert({
+          where: {
+            staffId_dayOfWeek: {
+              staffId,
+              dayOfWeek: entry.dayOfWeek,
+            },
+          },
+          create: {
+            staffId,
+            dayOfWeek: entry.dayOfWeek,
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            isAvailable: entry.isAvailable ?? true,
+          },
+          update: {
+            startTime: entry.startTime,
+            endTime: entry.endTime,
+            isAvailable: entry.isAvailable ?? true,
+          },
+        });
+      }
+    });
+
+    // Fetch updated schedule
+    const updatedSchedule = await prisma.staffWeeklySchedule.findMany({
+      where: { staffId },
+      orderBy: { dayOfWeek: "asc" },
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: "Weekly schedule updated successfully.",
+      schedule: updatedSchedule,
+    });
+  } catch (error) {
+    console.error("setWeeklySchedule error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not update weekly schedule.",
+    });
+  }
+};
+
+const getWeeklySchedule = async (req, res) => {
+  const staffId = req.user.id;
+
+  try {
+    const schedule = await prisma.staffWeeklySchedule.findMany({
+      where: { staffId },
+      orderBy: { dayOfWeek: "asc" },
+    });
+
+    return res.status(200).json({
+      success: true,
+      schedule,
+    });
+  } catch (error) {
+    console.error("getWeeklySchedule error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not fetch weekly schedule.",
+    });
+  }
+};
+
+/* ---------------- PROVIDER FUNCTIONS ---------------- */
+
+const getStaffLeaveForApproval = async (req, res) => {
+  const providerId = req.user.id;
+  const { businessProfileId } = req.params;
+
+  try {
+    // Verify provider owns this business
+    const business = await prisma.businessProfile.findUnique({
+      where: { id: businessProfileId },
+      select: { userId: true },
+    });
+
+    if (!business || business.userId !== providerId) {
+      return res.status(403).json({
+        success: false,
+        msg: "You are not authorized to manage this business.",
+      });
+    }
+
+    // Get all staff for this business
+    const businessStaffIds = await prisma.staffApplications
+      .findMany({
+        where: {
+          businessProfileId,
+          status: "APPROVED",
+        },
+        select: {
+          staffId: true,
+        },
+      })
+      .then((apps) => apps.map((app) => app.staffId));
+
+    // Get leave requests - filter by status if provided
+    const statusFilter = req.query.status;
+
+    const whereClause = {
+      staffId: { in: businessStaffIds },
+    };
+
+    // Only add status filter if not "ALL" and not undefined
+    if (statusFilter && statusFilter !== "ALL") {
+      whereClause.status = statusFilter;
+    }
+
+    const leaveRequests = await prisma.staffLeave.findMany({
+      where: whereClause,
+      include: {
+        staff: {
+          select: {
+            name: true,
+            email: true,
+            mobile: true,
+          },
+        },
+      },
+      orderBy: { startDate: "asc" },
+    });
+
+    return res.status(200).json({
+      success: true,
+      leaveRequests,
+    });
+  } catch (error) {
+    console.error("getStaffLeaveForApproval error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not fetch leave requests.",
+    });
+  }
+};
+
+const approveStaffLeave = async (req, res) => {
+  const providerId = req.user.id;
+  const { leaveId } = req.params;
+  // TODO: reject reason not handled here
+  // const { rejectReason } = req.body;
+
+  try {
+    const leave = await prisma.staffLeave.findUnique({
+      where: { id: leaveId },
+      include: {
+        staff: {
+          include: {
+            staffApplications: {
+              where: { status: "APPROVED" },
+              select: {
+                businessProfileId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    console.log("Details form backend ( ApproveStaffLeave function)", leave);
+
+    if (!leave) {
+      return res.status(404).json({
+        success: false,
+        msg: "Leave request not found.",
+      });
+    }
+
+    if (leave.status !== "PENDING") {
+      return res.status(400).json({
+        success: false,
+        msg: "Leave request has already been processed.",
+      });
+    }
+
+    // Verify provider owns the business this staff works for
+    const businessIds = leave.staff.staffApplications.map(
+      (app) => app.businessProfileId,
+    );
+    const businesses = await prisma.businessProfile.findMany({
+      where: {
+        id: { in: businessIds },
+        userId: providerId,
+      },
+    });
+
+    if (businesses.length === 0) {
+      return res.status(403).json({
+        success: false,
+        msg: "You are not authorized to approve leave for this staff member.",
+      });
+    }
+
+    // Update leave request
+    const updatedLeave = await prisma.staffLeave.update({
+      where: { id: leaveId },
+      data: {
+        status: "APPROVED",
+        approvedBy: providerId,
+        approvedAt: new Date(),
+      },
+    });
+
+    // Check if leave starts today - if so, set staff availability to NOT_AVAILABLE
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const leaveStartDate = new Date(updatedLeave.startDate);
+    leaveStartDate.setHours(0, 0, 0, 0);
+
+    if (leaveStartDate.getTime() === today.getTime()) {
+      await prisma.user.update({
+        where: { id: leave.staffId },
+        data: { availability: "NOT_AVAILABLE" },
+      });
+    }
+
+    // Send notification to staff member
+    const staffTokens = await prisma.fCMToken.findMany({
+      where: { userId: leave.staffId, isActive: true },
+    });
+
+    if (staffTokens.length > 0) {
+      await NotificationService.sendNotification(
+        staffTokens,
+        "Leave Approved",
+        `Your leave request from ${new Date(updatedLeave.startDate).toLocaleDateString()} to ${new Date(updatedLeave.endDate).toLocaleDateString()} has been approved.`,
+        {
+          type: "LEAVE_APPROVED",
+          leaveId: updatedLeave.id,
+        }
+      );
+    }
+
+    // Store in-app notification
+    await storeNotification(
+      "Leave Approved",
+      `Your leave request from ${new Date(updatedLeave.startDate).toLocaleDateString()} to ${new Date(updatedLeave.endDate).toLocaleDateString()} has been approved.`,
+      leave.staffId
+    );
+
+    return res.status(200).json({
+      success: true,
+      msg: "Leave request approved successfully.",
+      leave: updatedLeave,
+    });
+  } catch (error) {
+    console.error("approveStaffLeave error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not approve leave request.",
+    });
+  }
+};
+
+const rejectStaffLeave = async (req, res) => {
+  const providerId = req.user.id;
+  const { leaveId } = req.params;
+  const { rejectReason } = req.body;
+
+  try {
+    const leave = await prisma.staffLeave.findUnique({
+      where: { id: leaveId },
+      include: {
+        staff: {
+          include: {
+            staffApplications: {
+              where: { status: "APPROVED" },
+              select: {
+                businessProfileId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!leave) {
+      return res.status(404).json({
+        success: false,
+        msg: "Leave request not found.",
+      });
+    }
+
+    if (leave.status !== "PENDING") {
+      return res.status(400).json({
+        success: false,
+        msg: "Leave request has already been processed.",
+      });
+    }
+
+    // Verify provider owns the business this staff works for
+    const businessIds = leave.staff.StaffApplications.map(
+      (app) => app.businessProfileId,
+    );
+    const businesses = await prisma.businessProfile.findMany({
+      where: {
+        id: { in: businessIds },
+        userId: providerId,
+      },
+    });
+
+    if (businesses.length === 0) {
+      return res.status(403).json({
+        success: false,
+        msg: "You are not authorized to reject leave for this staff member.",
+      });
+    }
+
+    if (!rejectReason) {
+      return res.status(400).json({
+        success: false,
+        msg: "Reject reason is required.",
+      });
+    }
+
+    // Update leave request
+    const updatedLeave = await prisma.staffLeave.update({
+      where: { id: leaveId },
+      data: {
+        status: "REJECTED",
+        rejectReason,
+        rejectedAt: new Date(),
+      },
+    });
+
+    // Send notification to staff member
+    const staffTokens = await prisma.fCMToken.findMany({
+      where: { userId: leave.staffId, isActive: true },
+    });
+
+    if (staffTokens.length > 0) {
+      await NotificationService.sendNotification(
+        staffTokens,
+        "Leave Rejected",
+        `Your leave request has been rejected. Reason: ${rejectReason}`,
+        {
+          type: "LEAVE_REJECTED",
+          leaveId: updatedLeave.id,
+        }
+      );
+    }
+
+    // Store in-app notification
+    await storeNotification(
+      "Leave Rejected",
+      `Your leave request has been rejected. Reason: ${rejectReason}`,
+      leave.staffId
+    );
+
+    return res.status(200).json({
+      success: true,
+      msg: "Leave request rejected successfully.",
+      leave: updatedLeave,
+    });
+  } catch (error) {
+    console.error("rejectStaffLeave error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not reject leave request.",
+    });
+  }
+};
+
+const checkStaffAvailability = async (req, res) => {
+  const { staffId, date, time, businessProfileId } = req.query;
+
+  try {
+    if (!staffId || !date || !businessProfileId) {
+      return res.status(400).json({
+        success: false,
+        msg: "staffId, date, and businessProfileId are required.",
+      });
+    }
+
+    const staff = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: {
+        id: true,
+        name: true,
+        availability: true,
+      },
+    });
+
+    if (!staff) {
+      return res.status(404).json({
+        success: false,
+        msg: "Staff member not found.",
+      });
+    }
+
+    // Check all availability factors
+    const availabilityChecks = {
+      manualAvailability: null,
+      onWork: null,
+      timeConflict: null,
+      leavePeriod: null,
+      weeklySchedule: null,
+    };
+
+    // 1. Check manual availability (NOT_AVAILABLE)
+    if (staff.availability === "NOT_AVAILABLE") {
+      availabilityChecks.manualAvailability = {
+        available: false,
+        reason: "Staff is marked as NOT AVAILABLE",
+      };
+    }
+
+    // 2. Check if staff is ON_WORK
+    if (staff.availability === "ON_WORK") {
+      availabilityChecks.onWork = {
+        available: false,
+        reason: "Staff is currently working on another booking",
+      };
+    }
+
+    // 3. Check for approved leave during the booking date
+    const bookingDate = new Date(date);
+    const approvedLeaves = await prisma.staffLeave.findFirst({
+      where: {
+        staffId,
+        status: "APPROVED",
+        startDate: { lte: bookingDate },
+        endDate: { gte: bookingDate },
+      },
+    });
+
+    if (approvedLeaves) {
+      availabilityChecks.leavePeriod = {
+        available: false,
+        reason: "Staff is on leave during this period",
+        leaveDetails: {
+          startDate: approvedLeaves.startDate,
+          endDate: approvedLeaves.endDate,
+          leaveType: approvedLeaves.leaveType,
+        },
+      };
+    }
+
+    // 4. Check for time conflicts with existing bookings
+    if (time) {
+      const existingBookings = await prisma.booking.findMany({
+        where: {
+          businessProfileId,
+          StaffAssignBooking: {
+            some: {
+              assignedStaffId: staffId,
+              status: { in: ["PENDING", "ACCEPTED"] },
+            },
+          },
+          date: bookingDate.toISOString().split("T")[0],
+          bookingStatus: { not: "CANCELLED" },
+          trackingStatus: { not: "COMPLETED" },
+        },
+        include: {
+          slot: true,
+          service: true,
+        },
+      });
+
+      if (existingBookings.length > 0) {
+        availabilityChecks.timeConflict = {
+          available: false,
+          reason: "Staff has conflicting bookings at this time",
+          conflictingBookings: existingBookings.map((b) => ({
+            bookingId: b.id,
+            serviceName: b.service?.name,
+            time: b.slot?.time,
+            duration: b.service?.durationInMinutes,
+          })),
+        };
+      }
+    }
+
+    // 5. Check weekly schedule (if specified)
+    if (time) {
+      const dayOfWeek = bookingDate.getDay();
+      const weeklySchedule = await prisma.staffWeeklySchedule.findUnique({
+        where: {
+          staffId_dayOfWeek: {
+            staffId,
+            dayOfWeek,
+          },
+        },
+      });
+
+      if (weeklySchedule && !weeklySchedule.isAvailable) {
+        availabilityChecks.weeklySchedule = {
+          available: false,
+          reason:
+            "Staff is not available on this day according to weekly schedule",
+          schedule: {
+            dayOfWeek: weeklySchedule.dayOfWeek,
+            startTime: weeklySchedule.startTime,
+            endTime: weeklySchedule.endTime,
+          },
+        };
+      } else if (weeklySchedule) {
+        // Check if time is within working hours
+        const [bookingHour, bookingMinute] = time.split(":").map(Number);
+        const [startHour, startMinute] = weeklySchedule.startTime
+          .split(":")
+          .map(Number);
+        const [endHour, endMinute] = weeklySchedule.endTime
+          .split(":")
+          .map(Number);
+
+        const bookingTimeMinutes = bookingHour * 60 + bookingMinute;
+        const startTimeMinutes = startHour * 60 + startMinute;
+        const endTimeMinutes = endHour * 60 + endMinute;
+
+        if (
+          bookingTimeMinutes < startTimeMinutes ||
+          bookingTimeMinutes > endTimeMinutes
+        ) {
+          availabilityChecks.weeklySchedule = {
+            available: false,
+            reason: "Booking time is outside staff's working hours",
+            schedule: {
+              dayOfWeek: weeklySchedule.dayOfWeek,
+              startTime: weeklySchedule.startTime,
+              endTime: weeklySchedule.endTime,
+            },
+          };
+        }
+      }
+    }
+
+    // Determine overall availability
+    const isAvailable = !Object.values(availabilityChecks).some(
+      (check) => check && check.available === false,
+    );
+
+    return res.status(200).json({
+      success: true,
+      staffId,
+      staffName: staff.name,
+      isAvailable,
+      availabilityChecks,
+      currentStatus: staff.availability,
+    });
+  } catch (error) {
+    console.error("checkStaffAvailability error:", error);
+    return res.status(500).json({
+      success: false,
+      msg: "Server Error: Could not check staff availability.",
     });
   }
 };
@@ -1456,4 +2234,12 @@ module.exports = {
   updateBookingTrackingStatus,
   getAllBusinessStaffs,
   getStaffDetailsForProvider,
+  createStaffLeaveRequest,
+  getStaffLeaveRequests,
+  setWeeklySchedule,
+  getWeeklySchedule,
+  getStaffLeaveForApproval,
+  approveStaffLeave,
+  rejectStaffLeave,
+  checkStaffAvailability,
 };

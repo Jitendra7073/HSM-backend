@@ -54,6 +54,9 @@ const {
 const {
   startReminderScheduler,
 } = require("./controllers/scheduler/reminderScheduler");
+const {
+  updateStaffAvailabilityForLeave,
+} = require("./controllers/scheduler/staffAvailabilityScheduler");
 
 /* ---------------- PUBLIC ROUTE ---------------- */
 app.use("/auth", AuthRoutes);
@@ -84,4 +87,5 @@ server.listen(PORT, () => {
   console.log("Booking cleanup job started - runs every 30 seconds");
 
   startReminderScheduler();
+  console.log("Staff availability scheduler started - runs daily at midnight");
 });

@@ -1,6 +1,7 @@
 const express = require("express");
 const route = express.Router();
 const ProviderController = require("../controllers/provider.controller");
+const StaffController = require("../controllers/staff.controller");
 const {
   getPaymentRequests,
   getPaymentRequestDetails,
@@ -18,17 +19,8 @@ route
   .patch(ProviderController.updateBusiness)
   .delete(ProviderController.deleteBusiness);
 
-/* ---------------- STAFF ROUTES ---------------- */
-route.get("/staff", ProviderController.getStaffMembers);
-route.get("/staff-status", ProviderController.getStaffStatusTracking);
-route.get("/staff/:staffId", ProviderController.getStaffMemberById);
-route.get("/staff/:staffId/details", ProviderController.getStaffDetailsForProvider);
-route.get("/staff/:staffId/bookings", ProviderController.getStaffBookings);
-route.patch("/staff/:staffId/status", ProviderController.updateStaffStatus);
-route.post("/staff/:staffId/unlink", ProviderController.unlinkStaffMember);
-route.delete("/staff/:staffId", ProviderController.deleteStaffMember);
-
-/* ---------------- SERVICE ROUTE ---------------- */
+  
+  /* ---------------- SERVICE ROUTE ---------------- */
 route
   .route("/service")
   .get(ProviderController.getServices)
@@ -85,23 +77,30 @@ route.post(
 
 route.post("/assign-booking", ProviderController.assignBookingToProvider);
 
+/* ---------------- STAFF ROUTES ---------------- */
+route.get("/staff", ProviderController.getStaffMembers);
+route.get("/staff-status", ProviderController.getStaffStatusTracking);
+route.get("/staff/:staffId", ProviderController.getStaffMemberById);
+route.get("/staff/:staffId/details", ProviderController.getStaffDetailsForProvider);
+route.get("/staff/:staffId/bookings", ProviderController.getStaffBookings);
+route.patch("/staff/:staffId/status", ProviderController.updateStaffStatus);
+route.post("/staff/:staffId/unlink", ProviderController.unlinkStaffMember);
+route.delete("/staff/:staffId", ProviderController.deleteStaffMember);
+
 /* ---------------- STAFF PAYMENT ROUTES ---------------- */
-// Get all payment requests
 route.get("/staff/payments/requests", getPaymentRequests);
-
-// Get single payment request details
 route.get("/staff/payments/requests/:requestId", getPaymentRequestDetails);
-
-// Approve payment request
 route.post("/staff/payments/:requestId/approve", approvePaymentRequest);
-
-// Reject payment request
 route.delete("/staff/payments/:requestId", rejectPaymentRequest);
-
-// Get payment history
 route.get("/staff/payments/history", getPaymentHistory);
-
-// Get payment statistics
 route.get("/staff/payments/stats", getPaymentStats);
+
+/* ---------------- STAFF LEAVE MANAGEMENT ROUTES ---------------- */
+route.get(
+  "/staff/leave/:businessProfileId/requests",
+  StaffController.getStaffLeaveForApproval
+);
+route.put("/staff/leave/:leaveId/approve", StaffController.approveStaffLeave);
+route.delete("/staff/leave/:leaveId", StaffController.rejectStaffLeave);
 
 module.exports = route;
