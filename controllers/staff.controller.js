@@ -362,53 +362,7 @@ const applyForStaffApplication = async (req, res) => {
   }
 };
 
-const requestForExist = async (req, res) => {
-  const userId = req.user.id;
-  try {
-    const { businessProfileId, reason } = req.body;
-    // check is there any business is associated with that business Id
-    const businessProfile = await prisma.businessProfile.findUnique({
-      where: {
-        id: businessProfileId,
-      },
-    });
-    if (!businessProfile) {
-      return res.status(404).json({
-        success: false,
-        msg: "Business profile not found.",
-      });
-    }
-    // check is there any leave is already exists for this business profile
-    const existingLeave = await prisma.StaffExistFromBusiness.findUnique({
-      where: {
-        businessProfileId: businessProfileId,
-      },
-    });
-    if (existingLeave) {
-      return res.status(400).json({
-        success: false,
-        msg: "You are not the member of this business.",
-      });
-    }
-    const leave = await prisma.StaffExistFromBusiness.create({
-      data: {
-        userId: userId,
-        businessProfileId: businessProfileId,
-        reason: reason,
-      },
-    });
-    return res.status(200).json({
-      success: true,
-      msg: "Now! You're not the member of this business.",
-      leave,
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      msg: "Server Error: Could not request for leave.",
-    });
-  }
-};
+
 
 const getStaffBookings = async (req, res) => {
   const staffId = req.user.id;
@@ -616,6 +570,23 @@ const getDashboardStats = async (req, res) => {
       take: 5,
     });
 
+    // Check if staff is on approved leave today
+    const currentLeave = await prisma.staffLeave.findFirst({
+      where: {
+        staffId,
+        status: "APPROVED",
+        startDate: { lte: new Date(new Date().setHours(23, 59, 59, 999)) },
+        endDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      },
+      select: {
+        leaveType: true,
+        reason: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+    console.log("Current leave :", currentLeave)
+
     return res.status(200).json({
       success: true,
       msg: "Dashboard stats fetched successfully.",
@@ -625,6 +596,8 @@ const getDashboardStats = async (req, res) => {
         completedBookings,
         totalEarnings,
         upcomingBookings,
+        isOnLeave: !!currentLeave,
+        leaveDetails: currentLeave,
       },
     });
   } catch (error) {
@@ -1098,7 +1071,7 @@ const getStaffDetailsForProvider = async (req, res) => {
     const averageRating =
       staffFeedbacks.length > 0
         ? staffFeedbacks.reduce((sum, f) => sum + f.rating, 0) /
-          staffFeedbacks.length
+        staffFeedbacks.length
         : 0;
 
     // Calculate on-time performance
@@ -1153,7 +1126,7 @@ const getStaffDetailsForProvider = async (req, res) => {
       if (currentBooking.trackingStatus === "SERVICE_STARTED") {
         finalAvailability = "ON_WORK";
       } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-                 currentBooking.trackingStatus === "BOOKING_STARTED") {
+        currentBooking.trackingStatus === "BOOKING_STARTED") {
         finalAvailability = "ON_WORK";
       } else {
         finalAvailability = "BUSY";
@@ -1178,11 +1151,11 @@ const getStaffDetailsForProvider = async (req, res) => {
         availability: finalAvailability,
         currentBooking: currentBooking
           ? {
-              service: currentBooking.service.name,
-              customer: currentBooking.user.name,
-              time: currentBooking.slot?.time,
-              date: currentBooking.date,
-            }
+            service: currentBooking.service.name,
+            customer: currentBooking.user.name,
+            time: currentBooking.slot?.time,
+            date: currentBooking.date,
+          }
           : null,
         performance: {
           totalBookings,
@@ -2225,7 +2198,7 @@ module.exports = {
   getStaffApplications,
   cancelStaffApplication,
   applyForStaffApplication,
-  requestForExist,
+
   getStaffBookings,
   getDashboardStats,
   getStaffProfile,

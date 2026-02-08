@@ -1135,7 +1135,7 @@ const createSingleSlot = async (req, res) => {
       msg: "Slot created successfully.",
       slot: newSlot,
     });
-  } catch (error) {}
+  } catch (error) { }
 };
 
 const getAllSlots = async (req, res) => {
@@ -1353,12 +1353,15 @@ const bookingList = async (req, res) => {
         select: {
           id: true,
           name: true,
+          mobile: true,
         },
       },
       service: {
         select: {
           id: true,
           name: true,
+          price: true,
+          durationInMinutes: true,
         },
       },
       slot: {
@@ -1482,9 +1485,8 @@ const updateBooking = async (req, res) => {
 
     const notificationPayload = {
       title: `Booking ${normalizedStatus}`,
-      body: `Your ${
-        booking.service?.name || "service"
-      } booking has been ${normalizedStatus}.`,
+      body: `Your ${booking.service?.name || "service"
+        } booking has been ${normalizedStatus}.`,
       type: "BOOKING_STATUS_UPDATED",
     };
 
@@ -2519,7 +2521,7 @@ const assignBookingToProvider = async (req, res) => {
 
 const getStaffMembers = async (req, res) => {
   const providerId = req.user.id;
-  const { search, isApproved, page = 1, limit = 10 } = req.query;
+  const { search, isApproved, page = 1, limit = 10, date, time } = req.query;
 
   const pageNum = parseInt(page);
   const limitNum = parseInt(limit);
@@ -2581,107 +2583,124 @@ const getStaffMembers = async (req, res) => {
           where: { assignedStaffId: app.staffId, status: "ACCEPTED" },
         });
 
-        // Check if staff is currently busy (has active booking)
-        const activeBookings = await prisma.booking.findMany({
-          where: {
-            StaffAssignBooking: {
-              some: {
-                assignedStaffId: app.staffId,
-                status: "ACCEPTED",
+        // Parse checkDate
+        const checkDate = date ? new Date(date) : new Date();
+        const isToday = new Date().toDateString() === checkDate.toDateString();
+
+        // Check if staff is currently busy (has active booking) - ONLY RELEVANT FOR TODAY
+        let activeBookings = [];
+        if (isToday) {
+          activeBookings = await prisma.booking.findMany({
+            where: {
+              StaffAssignBooking: {
+                some: {
+                  assignedStaffId: app.staffId,
+                  status: "ACCEPTED", // or PENDING? Usually ACCEPTED implies they are working
+                },
+              },
+              bookingStatus: "CONFIRMED",
+              trackingStatus: {
+                in: ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"],
               },
             },
-            bookingStatus: "CONFIRMED",
-            trackingStatus: {
-              in: ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"],
+            include: {
+              service: { select: { name: true } },
+              user: { select: { name: true } },
+              slot: { select: { time: true } },
             },
-          },
-          include: {
-            service: {
-              select: {
-                name: true,
-              },
-            },
-            user: {
-              select: {
-                name: true,
-              },
-            },
-            slot: {
-              select: {
-                time: true,
-              },
-            },
-          },
-          take: 1,
-        });
+            take: 1,
+          });
+        }
 
         const hasActiveBooking = activeBookings.length > 0;
         const currentBooking = hasActiveBooking ? activeBookings[0] : null;
 
-        // Check if staff is on approved leave today
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Check if staff is on approved leave for the specific date
+        // Create range for the checkDate (00:00 to 23:59)
+        const startOfDay = new Date(checkDate);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(checkDate);
+        endOfDay.setHours(23, 59, 59, 999);
+
         const approvedLeave = await prisma.staffLeave.findFirst({
           where: {
             staffId: app.staffId,
             status: "APPROVED",
-            startDate: { lte: new Date(new Date().setHours(23, 59, 59, 999)) },
-            endDate: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+            // Check if leave overlaps with the checkDate
+            AND: [
+              { startDate: { lte: endOfDay } },
+              { endDate: { gte: startOfDay } },
+            ],
           },
         });
 
         // Determine availability based on multiple factors
-        let availability = app.staff.availability;
+        let availability = app.staff.availability || "AVAILABLE";
 
-        // Priority 1: If on approved leave today, set to NOT_AVAILABLE (not changeable)
+        // Priority 1: If on approved leave on that date, set to NOT_AVAILABLE
         if (approvedLeave) {
           availability = "NOT_AVAILABLE";
         }
-        // Priority 2: If has active booking in progress, set to ON_WORK
+        // Priority 2: If has active booking in progress (AND it is today), set to ON_WORK
         else if (hasActiveBooking && currentBooking) {
           if (currentBooking.trackingStatus === "SERVICE_STARTED") {
             availability = "ON_WORK";
           } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-                     currentBooking.trackingStatus === "BOOKING_STARTED") {
+            currentBooking.trackingStatus === "BOOKING_STARTED") {
             availability = "ON_WORK";
           } else {
             availability = "BUSY";
           }
         }
-        // Priority 3: If staff manually set to NOT_AVAILABLE and not on leave, keep it
+        // Priority 3: If staff manually set to NOT_AVAILABLE, check if we should respect it.
+        // If checking for a Future Date, Manual "NOT_AVAILABLE" usually implies "I am not taking jobs generally".
+        // But if they just toggled it for "Lunch break" today, it shouldn't affect next week.
+        // However, standard interpretation is "My Status is Unavailable".
         else if (app.staff.availability === "NOT_AVAILABLE") {
           availability = "NOT_AVAILABLE";
         }
-        // Priority 4: Otherwise use manual availability or default to AVAILABLE
-        else if (app.staff.availability === "AVAILABLE" || !app.staff.availability) {
+
+        // Ensure "ON_WORK" or "BUSY" status from User table doesn't persist to other days unless actual booking exists
+        // If User.availability is ON_WORK but isToday is false, we should probably treat it as AVAILABLE (unless manual NOT_AVAILABLE)
+        else if ((app.staff.availability === "ON_WORK" || app.staff.availability === "BUSY") && !isToday) {
           availability = "AVAILABLE";
         }
 
         return {
-          id: app.staffId, // Staff ID
+          id: app.staffId,
           applicationId: app.id,
           user: {
             name: app.staff.name,
             email: app.staff.email,
             mobile: app.staff.mobile,
           },
-          specialization: ["General"], // Placeholder as schema lacks it
-          employmentType: "BUSINESS_BASED", // Placeholder
-          experience: 1, // Placeholder
+          specialization: ["General"],
+          employmentType: "BUSINESS_BASED",
+          experience: 1,
           isActive: app.status === "APPROVED",
           status: app.status,
           availability: availability,
           currentBooking: currentBooking
             ? {
-                service: currentBooking.service.name,
-                customer: currentBooking.user.name,
-                time: currentBooking.slot?.time,
-              }
+              service: currentBooking.service.name,
+              customer: currentBooking.user.name,
+              time: currentBooking.slot?.time,
+            }
+            : null,
+          leaveDetails: approvedLeave
+            ? {
+              reason: approvedLeave.reason,
+              startDate: approvedLeave.startDate,
+              endDate: approvedLeave.endDate,
+            }
             : null,
           _count: { bookings: bookingCount },
         };
       }),
     );
+
+
 
     return res.status(200).json({
       success: true,
@@ -2882,7 +2901,7 @@ const getStaffMemberById = async (req, res) => {
       if (currentBooking.trackingStatus === "SERVICE_STARTED") {
         finalAvailability = "ON_WORK";
       } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-                 currentBooking.trackingStatus === "BOOKING_STARTED") {
+        currentBooking.trackingStatus === "BOOKING_STARTED") {
         finalAvailability = "ON_WORK";
       } else {
         finalAvailability = "BUSY";
@@ -2916,12 +2935,19 @@ const getStaffMemberById = async (req, res) => {
       availability: finalAvailability,
       currentBooking: currentBooking
         ? {
-            service: currentBooking.service.name,
-            customer: currentBooking.user.name,
-            time: currentBooking.slot?.time,
-          }
+          service: currentBooking.service.name,
+          customer: currentBooking.user.name,
+          time: currentBooking.slot?.time,
+        }
         : null,
       serviceAssignments,
+      leaveDetails: approvedLeave
+        ? {
+          reason: approvedLeave.reason,
+          startDate: approvedLeave.startDate,
+          endDate: approvedLeave.endDate,
+        }
+        : null,
       rating: averageRating,
       reviewCount: reviews.length,
       _count: {
@@ -2982,8 +3008,7 @@ const updateStaffStatus = async (req, res) => {
       if (status === "APPROVED" || status === "REJECTED") {
         await storeNotification(
           `Staff Application ${status}`,
-          `Your application to join ${
-            business.businessName
+          `Your application to join ${business.businessName
           } has been ${status.toLowerCase()}.`,
           staffId,
           providerId,
@@ -3092,14 +3117,14 @@ const getStaffStatusTracking = async (req, res) => {
           status: isBusy ? "ON_SERVICE" : "AVAILABLE",
           currentBooking: currentBooking
             ? {
-                bookingId: currentBooking.id,
-                service: currentBooking.service.name,
-                customer: currentBooking.user.name,
-                customerPhone: currentBooking.user.mobile,
-                time: currentBooking.slot?.time,
-                address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
-                trackingStatus: currentBooking.trackingStatus,
-              }
+              bookingId: currentBooking.id,
+              service: currentBooking.service.name,
+              customer: currentBooking.user.name,
+              customerPhone: currentBooking.user.mobile,
+              time: currentBooking.slot?.time,
+              address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
+              trackingStatus: currentBooking.trackingStatus,
+            }
             : null,
         };
       }),
@@ -3174,7 +3199,6 @@ const getStaffBookings = async (req, res) => {
         slot: {
           select: {
             id: true,
-            date: true,
             time: true,
           },
         },
@@ -3207,7 +3231,7 @@ const getStaffBookings = async (req, res) => {
 const unlinkStaffMember = async (req, res) => {
   const providerId = req.user.id;
   const { staffId } = req.params;
-  const { transfers } = req.body; // Array of { bookingId, newStaffId }
+  const { transfers, reason } = req.body; // Array of { bookingId, newStaffId }
 
   try {
     const business = await prisma.businessProfile.findUnique({
@@ -3313,7 +3337,7 @@ const unlinkStaffMember = async (req, res) => {
       data: {
         staffId: staffId,
         businessProfileId: business.id,
-        reason: "Unlinked by provider",
+        reason: reason || "Unlinked by provider",
         status: "COMPLETED",
         message: {
           unlinkedBy: providerId,
@@ -3332,7 +3356,8 @@ const unlinkStaffMember = async (req, res) => {
     try {
       await storeNotification(
         "Removed from Business",
-        `You have been removed from ${business.businessName}.`,
+        `You have been removed from ${business.businessName}. Reason: ${reason || "No reason provided"
+        }`,
         staffId,
         providerId,
       );
@@ -3488,7 +3513,7 @@ const getStaffDetailsForProvider = async (req, res) => {
     const averageRating =
       staffFeedbacks.length > 0
         ? staffFeedbacks.reduce((sum, f) => sum + f.rating, 0) /
-          staffFeedbacks.length
+        staffFeedbacks.length
         : 0;
 
     // Calculate on-time performance
@@ -3544,7 +3569,7 @@ const getStaffDetailsForProvider = async (req, res) => {
       if (currentBooking.trackingStatus === "SERVICE_STARTED") {
         finalAvailability = "ON_WORK";
       } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-                 currentBooking.trackingStatus === "BOOKING_STARTED") {
+        currentBooking.trackingStatus === "BOOKING_STARTED") {
         finalAvailability = "ON_WORK";
       } else {
         finalAvailability = "BUSY";
@@ -3567,13 +3592,20 @@ const getStaffDetailsForProvider = async (req, res) => {
         businessName: staffAssignment.businessProfile.businessName,
         joinedAt: staffAssignment.createdAt,
         availability: finalAvailability,
+        leaveDetails: approvedLeave
+          ? {
+            reason: approvedLeave.reason,
+            startDate: approvedLeave.startDate,
+            endDate: approvedLeave.endDate,
+          }
+          : null,
         currentBooking: currentBooking
           ? {
-              service: currentBooking.service.name,
-              customer: currentBooking.user.name,
-              time: currentBooking.slot?.time,
-              date: currentBooking.date,
-            }
+            service: currentBooking.service.name,
+            customer: currentBooking.user.name,
+            time: currentBooking.slot?.time,
+            date: currentBooking.date,
+          }
           : null,
         performance: {
           totalBookings,

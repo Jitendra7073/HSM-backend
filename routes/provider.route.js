@@ -19,8 +19,8 @@ route
   .patch(ProviderController.updateBusiness)
   .delete(ProviderController.deleteBusiness);
 
-  
-  /* ---------------- SERVICE ROUTE ---------------- */
+
+/* ---------------- SERVICE ROUTE ---------------- */
 route
   .route("/service")
   .get(ProviderController.getServices)
@@ -92,14 +92,16 @@ route.get("/staff/payments/requests", getPaymentRequests);
 route.get("/staff/payments/requests/:requestId", getPaymentRequestDetails);
 route.post("/staff/payments/:requestId/approve", approvePaymentRequest);
 route.delete("/staff/payments/:requestId", rejectPaymentRequest);
-route.get("/staff/payments/history", getPaymentHistory);
 route.get("/staff/payments/stats", getPaymentStats);
+
+const ProviderLeavesController = require("../controllers/provider-leaves.controller");
 
 /* ---------------- STAFF LEAVE MANAGEMENT ROUTES ---------------- */
 route.get(
   "/staff/leave/:businessProfileId/requests",
   StaffController.getStaffLeaveForApproval
 );
+route.get("/staff/:staffId/leave", ProviderLeavesController.getStaffLeaves);
 route.put("/staff/leave/:leaveId/approve", StaffController.approveStaffLeave);
 route.delete("/staff/leave/:leaveId", StaffController.rejectStaffLeave);
 

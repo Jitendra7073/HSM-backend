@@ -33,9 +33,8 @@ route.delete(
   "/applications/:applicationId",
   StaffController.cancelStaffApplication,
 );
-route.put("/applications/exist", StaffController.requestForExist);
 
-// Staff Assigned Bookings
+// Staff assigned Bookings
 route.get("/bookings", StaffController.getStaffBookings);
 route.put(
   "/bookings/:bookingId/status",

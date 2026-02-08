@@ -20,8 +20,14 @@ const { storeNotification } = require("./notification.controller");
 /* ---------------------------- STRIPE WEBHOOK HANDLER ---------------------------- */
 
 const stripeWebhookHandler = async (req, res) => {
+  /* ---------------- DEBUG LOGS ---------------- */
+  console.log("🔔 Webhook received!");
+
   const sig = req.headers["stripe-signature"];
-  if (!sig) return res.status(400).send("Missing stripe-signature");
+  if (!sig) {
+    console.error("❌ Missing stripe-signature header");
+    return res.status(400).send("Missing stripe-signature");
+  }
 
   let event;
   try {
@@ -30,8 +36,9 @@ const stripeWebhookHandler = async (req, res) => {
       sig,
       process.env.STRIPE_WEBHOOK_SECRET,
     );
+    console.log(`✅ Webhook verified: ${event.type}`);
   } catch (err) {
-    console.error("Signature verification failed:", err.message);
+    console.error(`❌ Signature verification failed: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -72,6 +79,7 @@ const stripeWebhookHandler = async (req, res) => {
 /* --------------------------- CUSTOMER PAYMENT SUCCESS --------------------------- */
 
 const handleCheckoutCompleted = async (session, req) => {
+  console.log("💰 Processing checkout.session.completed", session.id);
   const { userId, addressId, paymentId, bookingIds, dbCart } =
     session.metadata || {};
 
@@ -318,9 +326,8 @@ const handleCheckoutCompleted = async (session, req) => {
 
     const payload = {
       title: "New Booking Received",
-      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${
-        user.name
-      }`,
+      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${user.name
+        }`,
       type: "BOOKING_CREATED",
     };
 
@@ -467,10 +474,10 @@ const handleProviderSubscriptionCompleted = async (session, req) => {
     subscription.status === "trialing"
       ? subscription.trial_end
       : subscription.current_period_end ??
-        subscription.created +
-          (priceItem.price.recurring?.interval === "year"
-            ? 365 * 24 * 60 * 60
-            : 30 * 24 * 60 * 60);
+      subscription.created +
+      (priceItem.price.recurring?.interval === "year"
+        ? 365 * 24 * 60 * 60
+        : 30 * 24 * 60 * 60);
 
   const currentPeriodStart = new Date(periodStartUnix * 1000);
   const currentPeriodEnd = new Date(periodEndUnix * 1000);
@@ -694,14 +701,13 @@ const handleProviderSubscriptionUpdated = async (subscription, req) => {
           subject: "Subscription Cancellation Scheduled",
           template: providerSubscriptionCancelledEmailTemplate
             ? providerSubscriptionCancelledEmailTemplate({
-                userName: user.name,
-                endDate: new Date(periodEndUnix * 1000).toLocaleDateString(),
-              })
-            : `<p>Hello ${
-                user.name
-              },<br>Your subscription has been cancelled. It will remain active until ${new Date(
-                periodEndUnix * 1000,
-              ).toLocaleDateString()}.</p>`,
+              userName: user.name,
+              endDate: new Date(periodEndUnix * 1000).toLocaleDateString(),
+            })
+            : `<p>Hello ${user.name
+            },<br>Your subscription has been cancelled. It will remain active until ${new Date(
+              periodEndUnix * 1000,
+            ).toLocaleDateString()}.</p>`,
         });
 
         const { storeNotification } = require("./notification.controller");
