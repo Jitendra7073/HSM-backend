@@ -1135,7 +1135,7 @@ const createSingleSlot = async (req, res) => {
       msg: "Slot created successfully.",
       slot: newSlot,
     });
-  } catch (error) { }
+  } catch (error) {}
 };
 
 const getAllSlots = async (req, res) => {
@@ -1269,7 +1269,7 @@ const bookingList = async (req, res) => {
   }
 
   if (bookingId) {
-    const bookings = await prisma.Booking.findFirst({
+    const booking = await prisma.Booking.findFirst({
       where: {
         id: bookingId,
       },
@@ -1318,10 +1318,23 @@ const bookingList = async (req, res) => {
         cancellation: true,
         createdAt: true,
         updatedAt: true,
+        StaffAssignBooking: {
+          select: {
+            assignedStaffId: true,
+            status: true,
+            assignedStaff: {
+              select: {
+                name: true,
+                email: true,
+                mobile: true,
+              },
+            },
+          },
+        },
       },
     });
 
-    if (!bookings) {
+    if (!booking) {
       return res.status(404).json({
         success: false,
         msg: "Booking not found for this User.",
@@ -1331,7 +1344,7 @@ const bookingList = async (req, res) => {
     return res.status(200).json({
       success: true,
       msg: "Booking fetched successfully.",
-      bookings,
+      booking,
     });
   }
 
@@ -1485,8 +1498,9 @@ const updateBooking = async (req, res) => {
 
     const notificationPayload = {
       title: `Booking ${normalizedStatus}`,
-      body: `Your ${booking.service?.name || "service"
-        } booking has been ${normalizedStatus}.`,
+      body: `Your ${
+        booking.service?.name || "service"
+      } booking has been ${normalizedStatus}.`,
       type: "BOOKING_STATUS_UPDATED",
     };
 
@@ -2129,7 +2143,8 @@ const assignBookingToProvider = async (req, res) => {
   const providerId = req.user.id;
 
   try {
-    const { bookingId, staffId, staffPaymentType, staffPaymentValue } = req.body;
+    const { bookingId, staffId, staffPaymentType, staffPaymentValue } =
+      req.body;
 
     if (!bookingId || !staffId) {
       return res.status(400).json({
@@ -2152,7 +2167,11 @@ const assignBookingToProvider = async (req, res) => {
     let paymentValue = staffPaymentValue;
 
     // Validate and set default payment value based on type
-    if (paymentValue === undefined || paymentValue === null || paymentValue === "") {
+    if (
+      paymentValue === undefined ||
+      paymentValue === null ||
+      paymentValue === ""
+    ) {
       paymentValue = paymentType === "PERCENTAGE" ? 50 : 0; // Default 50% or 0 fixed amount
     }
 
@@ -2328,7 +2347,9 @@ const assignBookingToProvider = async (req, res) => {
         AND: [
           {
             startDate: {
-              lte: new Date(new Date(bookingDetails.date).setHours(23, 59, 59, 999)),
+              lte: new Date(
+                new Date(bookingDetails.date).setHours(23, 59, 59, 999),
+              ),
             },
           },
           {
@@ -2343,7 +2364,11 @@ const assignBookingToProvider = async (req, res) => {
     if (approvedLeave) {
       return res.status(409).json({
         success: false,
-        msg: `Staff member is on leave from ${new Date(approvedLeave.startDate).toLocaleDateString()} to ${new Date(approvedLeave.endDate).toLocaleDateString()}. Please choose a different staff member or date.`,
+        msg: `Staff member is on leave from ${new Date(
+          approvedLeave.startDate,
+        ).toLocaleDateString()} to ${new Date(
+          approvedLeave.endDate,
+        ).toLocaleDateString()}. Please choose a different staff member or date.`,
         availabilityConflict: {
           type: "LEAVE_PERIOD",
           reason: "Staff is on approved leave",
@@ -2383,16 +2408,29 @@ const assignBookingToProvider = async (req, res) => {
     }
 
     // 6. Check if booking time is within working hours (if weekly schedule is set)
-    if (weeklySchedule && weeklySchedule.isAvailable && bookingDetails.slot?.time) {
-      const [bookingHour, bookingMinute] = bookingDetails.slot.time.split(":").map(Number);
-      const [startHour, startMinute] = weeklySchedule.startTime.split(":").map(Number);
-      const [endHour, endMinute] = weeklySchedule.endTime.split(":").map(Number);
+    if (
+      weeklySchedule &&
+      weeklySchedule.isAvailable &&
+      bookingDetails.slot?.time
+    ) {
+      const [bookingHour, bookingMinute] = bookingDetails.slot.time
+        .split(":")
+        .map(Number);
+      const [startHour, startMinute] = weeklySchedule.startTime
+        .split(":")
+        .map(Number);
+      const [endHour, endMinute] = weeklySchedule.endTime
+        .split(":")
+        .map(Number);
 
       const bookingTimeMinutes = bookingHour * 60 + bookingMinute;
       const startTimeMinutes = startHour * 60 + startMinute;
       const endTimeMinutes = endHour * 60 + endMinute;
 
-      if (bookingTimeMinutes < startTimeMinutes || bookingTimeMinutes > endTimeMinutes) {
+      if (
+        bookingTimeMinutes < startTimeMinutes ||
+        bookingTimeMinutes > endTimeMinutes
+      ) {
         return res.status(409).json({
           success: false,
           msg: `Booking time ${bookingDetails.slot.time} is outside staff's working hours (${weeklySchedule.startTime} - ${weeklySchedule.endTime}). Please choose a different time slot.`,
@@ -2600,7 +2638,11 @@ const getStaffMembers = async (req, res) => {
               },
               bookingStatus: "CONFIRMED",
               trackingStatus: {
-                in: ["BOOKING_STARTED", "PROVIDER_ON_THE_WAY", "SERVICE_STARTED"],
+                in: [
+                  "BOOKING_STARTED",
+                  "PROVIDER_ON_THE_WAY",
+                  "SERVICE_STARTED",
+                ],
               },
             },
             include: {
@@ -2646,8 +2688,10 @@ const getStaffMembers = async (req, res) => {
         else if (hasActiveBooking && currentBooking) {
           if (currentBooking.trackingStatus === "SERVICE_STARTED") {
             availability = "ON_WORK";
-          } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-            currentBooking.trackingStatus === "BOOKING_STARTED") {
+          } else if (
+            currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+            currentBooking.trackingStatus === "BOOKING_STARTED"
+          ) {
             availability = "ON_WORK";
           } else {
             availability = "BUSY";
@@ -2663,7 +2707,11 @@ const getStaffMembers = async (req, res) => {
 
         // Ensure "ON_WORK" or "BUSY" status from User table doesn't persist to other days unless actual booking exists
         // If User.availability is ON_WORK but isToday is false, we should probably treat it as AVAILABLE (unless manual NOT_AVAILABLE)
-        else if ((app.staff.availability === "ON_WORK" || app.staff.availability === "BUSY") && !isToday) {
+        else if (
+          (app.staff.availability === "ON_WORK" ||
+            app.staff.availability === "BUSY") &&
+          !isToday
+        ) {
           availability = "AVAILABLE";
         }
 
@@ -2683,24 +2731,22 @@ const getStaffMembers = async (req, res) => {
           availability: availability,
           currentBooking: currentBooking
             ? {
-              service: currentBooking.service.name,
-              customer: currentBooking.user.name,
-              time: currentBooking.slot?.time,
-            }
+                service: currentBooking.service.name,
+                customer: currentBooking.user.name,
+                time: currentBooking.slot?.time,
+              }
             : null,
           leaveDetails: approvedLeave
             ? {
-              reason: approvedLeave.reason,
-              startDate: approvedLeave.startDate,
-              endDate: approvedLeave.endDate,
-            }
+                reason: approvedLeave.reason,
+                startDate: approvedLeave.startDate,
+                endDate: approvedLeave.endDate,
+              }
             : null,
           _count: { bookings: bookingCount },
         };
       }),
     );
-
-
 
     return res.status(200).json({
       success: true,
@@ -2900,8 +2946,10 @@ const getStaffMemberById = async (req, res) => {
     else if (activeBookings.length > 0 && currentBooking) {
       if (currentBooking.trackingStatus === "SERVICE_STARTED") {
         finalAvailability = "ON_WORK";
-      } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-        currentBooking.trackingStatus === "BOOKING_STARTED") {
+      } else if (
+        currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+        currentBooking.trackingStatus === "BOOKING_STARTED"
+      ) {
         finalAvailability = "ON_WORK";
       } else {
         finalAvailability = "BUSY";
@@ -2912,7 +2960,10 @@ const getStaffMemberById = async (req, res) => {
       finalAvailability = "NOT_AVAILABLE";
     }
     // Priority 4: Otherwise use manual availability or default to AVAILABLE
-    else if (application.staff.availability === "AVAILABLE" || !application.staff.availability) {
+    else if (
+      application.staff.availability === "AVAILABLE" ||
+      !application.staff.availability
+    ) {
       finalAvailability = "AVAILABLE";
     }
 
@@ -2935,18 +2986,18 @@ const getStaffMemberById = async (req, res) => {
       availability: finalAvailability,
       currentBooking: currentBooking
         ? {
-          service: currentBooking.service.name,
-          customer: currentBooking.user.name,
-          time: currentBooking.slot?.time,
-        }
+            service: currentBooking.service.name,
+            customer: currentBooking.user.name,
+            time: currentBooking.slot?.time,
+          }
         : null,
       serviceAssignments,
       leaveDetails: approvedLeave
         ? {
-          reason: approvedLeave.reason,
-          startDate: approvedLeave.startDate,
-          endDate: approvedLeave.endDate,
-        }
+            reason: approvedLeave.reason,
+            startDate: approvedLeave.startDate,
+            endDate: approvedLeave.endDate,
+          }
         : null,
       rating: averageRating,
       reviewCount: reviews.length,
@@ -3008,7 +3059,8 @@ const updateStaffStatus = async (req, res) => {
       if (status === "APPROVED" || status === "REJECTED") {
         await storeNotification(
           `Staff Application ${status}`,
-          `Your application to join ${business.businessName
+          `Your application to join ${
+            business.businessName
           } has been ${status.toLowerCase()}.`,
           staffId,
           providerId,
@@ -3117,14 +3169,14 @@ const getStaffStatusTracking = async (req, res) => {
           status: isBusy ? "ON_SERVICE" : "AVAILABLE",
           currentBooking: currentBooking
             ? {
-              bookingId: currentBooking.id,
-              service: currentBooking.service.name,
-              customer: currentBooking.user.name,
-              customerPhone: currentBooking.user.mobile,
-              time: currentBooking.slot?.time,
-              address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
-              trackingStatus: currentBooking.trackingStatus,
-            }
+                bookingId: currentBooking.id,
+                service: currentBooking.service.name,
+                customer: currentBooking.user.name,
+                customerPhone: currentBooking.user.mobile,
+                time: currentBooking.slot?.time,
+                address: `${currentBooking.address.street}, ${currentBooking.address.city}`,
+                trackingStatus: currentBooking.trackingStatus,
+              }
             : null,
         };
       }),
@@ -3356,7 +3408,8 @@ const unlinkStaffMember = async (req, res) => {
     try {
       await storeNotification(
         "Removed from Business",
-        `You have been removed from ${business.businessName}. Reason: ${reason || "No reason provided"
+        `You have been removed from ${business.businessName}. Reason: ${
+          reason || "No reason provided"
         }`,
         staffId,
         providerId,
@@ -3384,7 +3437,7 @@ const getStaffDetailsForProvider = async (req, res) => {
     const staffAssignment = await prisma.staffApplications.findFirst({
       where: {
         staffId,
-        status: "APPROVED",
+        status: { in: ["APPROVED", "PENDING"] },
         businessProfile: {
           userId: providerId,
         },
@@ -3513,7 +3566,7 @@ const getStaffDetailsForProvider = async (req, res) => {
     const averageRating =
       staffFeedbacks.length > 0
         ? staffFeedbacks.reduce((sum, f) => sum + f.rating, 0) /
-        staffFeedbacks.length
+          staffFeedbacks.length
         : 0;
 
     // Calculate on-time performance
@@ -3541,8 +3594,7 @@ const getStaffDetailsForProvider = async (req, res) => {
       );
     });
 
-    const isBusy =
-      staff.availability === "BUSY" || activeBookings.length > 0;
+    const isBusy = staff.availability === "BUSY" || activeBookings.length > 0;
     const currentBooking = isBusy ? activeBookings[0] : null;
 
     // Check if staff is on approved leave today
@@ -3568,8 +3620,10 @@ const getStaffDetailsForProvider = async (req, res) => {
     else if (activeBookings.length > 0 && currentBooking) {
       if (currentBooking.trackingStatus === "SERVICE_STARTED") {
         finalAvailability = "ON_WORK";
-      } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-        currentBooking.trackingStatus === "BOOKING_STARTED") {
+      } else if (
+        currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+        currentBooking.trackingStatus === "BOOKING_STARTED"
+      ) {
         finalAvailability = "ON_WORK";
       } else {
         finalAvailability = "BUSY";
@@ -3590,22 +3644,23 @@ const getStaffDetailsForProvider = async (req, res) => {
       staff: {
         ...staff,
         businessName: staffAssignment.businessProfile.businessName,
+        applicationStatus: staffAssignment.status,
         joinedAt: staffAssignment.createdAt,
         availability: finalAvailability,
         leaveDetails: approvedLeave
           ? {
-            reason: approvedLeave.reason,
-            startDate: approvedLeave.startDate,
-            endDate: approvedLeave.endDate,
-          }
+              reason: approvedLeave.reason,
+              startDate: approvedLeave.startDate,
+              endDate: approvedLeave.endDate,
+            }
           : null,
         currentBooking: currentBooking
           ? {
-            service: currentBooking.service.name,
-            customer: currentBooking.user.name,
-            time: currentBooking.slot?.time,
-            date: currentBooking.date,
-          }
+              service: currentBooking.service.name,
+              customer: currentBooking.user.name,
+              time: currentBooking.slot?.time,
+              date: currentBooking.date,
+            }
           : null,
         performance: {
           totalBookings,

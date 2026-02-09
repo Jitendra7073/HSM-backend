@@ -172,9 +172,12 @@ const getPaymentRequestDetails = async (req, res) => {
         name: true,
         mobile: true,
         email: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
       },
+    });
+
+    // Get staff bank account
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { userId: request.staffId },
     });
 
     return res.status(200).json({
@@ -186,8 +189,15 @@ const getPaymentRequestDetails = async (req, res) => {
         staffName: staff?.name || "Unknown",
         staffMobile: staff?.mobile || "N/A",
         staffEmail: staff?.email || "N/A",
-        stripeAccountId: staff?.stripeAccountId,
-        stripeAccountStatus: staff?.stripeAccountStatus,
+        bankDetails: bankAccount
+          ? {
+              bankName: bankAccount.bankName,
+              accountNumber: bankAccount.accountNumber,
+              ifscCode: bankAccount.ifscCode,
+              accountHolderName: bankAccount.accountHolderName,
+              upiId: bankAccount.upiId,
+            }
+          : null,
         bookingId: request.bookingId,
         serviceName: request.booking.service.name,
         serviceDescription: request.booking.service.description,
@@ -222,7 +232,7 @@ const getPaymentRequestDetails = async (req, res) => {
 const approvePaymentRequest = async (req, res) => {
   const providerId = req.user.id;
   const { requestId } = req.params;
-  const { percentage } = req.body;
+  const { percentage, paymentMethod } = req.body;
 
   try {
     // 1. Validate input
@@ -270,8 +280,6 @@ const approvePaymentRequest = async (req, res) => {
         id: true,
         name: true,
         email: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
       },
     });
 
@@ -282,53 +290,20 @@ const approvePaymentRequest = async (req, res) => {
       });
     }
 
-    // 4. Check if staff has Stripe account
-    if (!staff.stripeAccountId || staff.stripeAccountStatus !== "VERIFIED") {
-      return res.status(400).json({
-        success: false,
-        msg: "Staff has not connected their Stripe account yet.",
-        stripeAccountStatus: staff.stripeAccountStatus || "NOT_CONNECTED",
-      });
-    }
-
-    // 5. Calculate amount
+    // 4. Calculate amount
     const providerEarnings =
       paymentRequest.booking.providerEarnings ||
       paymentRequest.booking.totalAmount;
     const staffAmount = Math.round(providerEarnings * (percentage / 100));
 
-    if (staffAmount <= 50) {
+    if (staffAmount <= 1) {
       return res.status(400).json({
         success: false,
-        msg: "Amount to pay must be greater than 50.",
+        msg: "Amount to pay must be greater than 1.",
       });
     }
 
-    // 6. Process Stripe transfer
-    let stripeTransferId = null;
-    try {
-      const transfer = await stripe.transfers.create({
-        amount: staffAmount * 100, // Convert to paise
-        currency: "inr",
-        destination: staff.stripeAccountId,
-        metadata: {
-          bookingId: paymentRequest.bookingId,
-          staffId: paymentRequest.staffId,
-          providerId: providerId,
-          paymentRequestId: requestId,
-        },
-      });
-      stripeTransferId = transfer.id;
-    } catch (stripeError) {
-      console.error("Stripe transfer error:", stripeError);
-      return res.status(500).json({
-        success: false,
-        msg: "Failed to process Stripe transfer. Please try again.",
-        error: stripeError.message,
-      });
-    }
-
-    // 7. Create payment record
+    // 5. Create payment record (Manual Payment)
     const payment = await prisma.staffPayment.create({
       data: {
         bookingId: paymentRequest.bookingId,
@@ -337,14 +312,14 @@ const approvePaymentRequest = async (req, res) => {
         requestedAmount: paymentRequest.requestedAmount,
         percentage: percentage,
         staffAmount: staffAmount,
-        paymentMethod: "stripe",
-        stripeTransferId: stripeTransferId,
+        paymentMethod: paymentMethod || "MANUAL",
+        stripeTransferId: null,
         paidAt: new Date(),
         status: "PAID",
       },
     });
 
-    // 8. Update payment request status
+    // 6. Update payment request status
     await prisma.staffPaymentRequest.update({
       where: { id: requestId },
       data: {
@@ -353,7 +328,7 @@ const approvePaymentRequest = async (req, res) => {
       },
     });
 
-    // 9. Update booking payment status
+    // 7. Update booking payment status
     await prisma.booking.update({
       where: { id: paymentRequest.bookingId },
       data: {
@@ -364,7 +339,7 @@ const approvePaymentRequest = async (req, res) => {
       },
     });
 
-    // 10. Send notification to staff
+    // 8. Send notification to staff
     await prisma.notification.create({
       data: {
         title: "💵 Payment Received",
@@ -374,7 +349,7 @@ const approvePaymentRequest = async (req, res) => {
       },
     });
 
-    // 11. Get provider name for email
+    // 9. Get provider name for email
     const provider = await prisma.user.findUnique({
       where: { id: providerId },
       select: {
@@ -386,7 +361,7 @@ const approvePaymentRequest = async (req, res) => {
       },
     });
 
-    // 12. Send email to staff with invoice
+    // 10. Send email to staff with invoice
     const { sendMail } = require("../utils/sendmail");
     const { staffPaymentReceivedEmail } = require("../utils/emailTemplates");
 
@@ -396,7 +371,7 @@ const approvePaymentRequest = async (req, res) => {
       staffAmount,
       percentage,
       providerEarnings,
-      stripeTransferId,
+      "Manual Transfer", // No Stripe Transfer ID
       new Date().toLocaleDateString(),
       paymentRequest.bookingId,
       provider?.businessProfile?.businessName || "Provider",
@@ -416,7 +391,6 @@ const approvePaymentRequest = async (req, res) => {
         id: payment.id,
         staffAmount: staffAmount,
         percentage: percentage,
-        stripeTransferId: stripeTransferId,
         paidAt: payment.paidAt,
       },
     });
@@ -728,546 +702,140 @@ const getPaymentStats = async (req, res) => {
 };
 
 /**
- * Get provider's bank account details from Stripe
+ * Add manual bank account
  */
-const getProviderBankAccountDetails = async (req, res) => {
+const addBankAccount = async (req, res) => {
   const providerId = req.user.id;
+  const { bankName, accountNumber, ifscCode, accountHolderName, upiId } =
+    req.body;
 
   try {
-    const provider = await prisma.user.findUnique({
-      where: { id: providerId },
-      select: {
-        id: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
-      },
-    });
-
-    if (!provider) {
-      return res.status(404).json({
+    if (!bankName || !accountNumber || !ifscCode || !accountHolderName) {
+      return res.status(400).json({
         success: false,
-        msg: "Provider not found.",
+        msg: "All bank details are required.",
       });
     }
 
-    if (!provider.stripeAccountId) {
+    // Check if account already exists
+    const existingAccount = await prisma.bankAccount.findFirst({
+      where: { userId: providerId },
+    });
+
+    if (existingAccount) {
+      // Update existing
+      const updatedAccount = await prisma.bankAccount.update({
+        where: { id: existingAccount.id },
+        data: {
+          bankName,
+          accountNumber,
+          ifscCode,
+          accountHolderName,
+          upiId,
+          isActive: true,
+        },
+      });
       return res.status(200).json({
         success: true,
-        msg: "No Stripe account connected.",
-        hasConnected: false,
-        bankAccount: null,
+        msg: "Bank account updated successfully.",
+        bankAccount: updatedAccount,
       });
     }
 
-    // Fetch external account details from Stripe
-    const account = await stripe.accounts.retrieve(provider.stripeAccountId);
-    const externalAccounts = await stripe.accounts.listExternalAccounts(
-      provider.stripeAccountId,
-      { object: "bank_account" },
-    );
-
-    const bankAccount =
-      externalAccounts.data.length > 0 ? externalAccounts.data[0] : null;
-
-    return res.status(200).json({
-      success: true,
-      msg: "Bank account details fetched successfully.",
-      hasConnected: true,
-      stripeAccountStatus: provider.stripeAccountStatus,
-      bankAccount: bankAccount
-        ? {
-            bankName: bankAccount.bank_name,
-            last4: bankAccount.last4,
-            routingNumber: bankAccount.routing_number,
-            status: bankAccount.status,
-            country: bankAccount.country,
-            currency: bankAccount.currency,
-          }
-        : null,
-      payoutsEnabled: account.payouts_enabled,
-      chargesEnabled: account.chargesEnabled,
-    });
-  } catch (error) {
-    console.error("getProviderBankAccountDetails error:", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Server Error: Could not fetch bank account details.",
-      error: error.message,
-    });
-  }
-};
-
-/**
- * Get Stripe onboarding link for provider
- */
-const getProviderStripeOnboardingLink = async (req, res) => {
-  const providerId = req.user.id;
-
-  try {
-    const provider = await prisma.user.findUnique({
-      where: { id: providerId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
-      },
-    });
-
-    if (!provider) {
-      return res.status(404).json({
-        success: false,
-        msg: "Provider not found.",
-      });
-    }
-
-    // If already has verified Stripe account, return that info
-    if (
-      provider.stripeAccountId &&
-      provider.stripeAccountStatus === "VERIFIED"
-    ) {
-      return res.status(200).json({
-        success: true,
-        msg: "Stripe account already connected.",
-        stripeAccountStatus: provider.stripeAccountStatus,
-      });
-    }
-
-    // Prepare business profile - only include URL if it's valid (not localhost)
-    const businessProfile = {
-      mcc: "5734", // MCC code for computer-related services
-    };
-
-    // Only add URL if it's a valid production URL (not localhost or 127.0.0.1)
-    const clientUrl = process.env.CLIENT_URL || "";
-    if (
-      clientUrl &&
-      !clientUrl.includes("localhost") &&
-      !clientUrl.includes("127.0.0.1") &&
-      !clientUrl.includes("http://localhost")
-    ) {
-      businessProfile.url = `${clientUrl}/provider/dashboard/profile`;
-    } else {
-      // Use a placeholder URL for development
-      businessProfile.url = "https://fixora-services-vercel.app";
-    }
-
-    // Create Stripe Express account and onboarding link
-    const account = await stripe.accounts.create({
-      type: "express",
-      country: "AU", // India
-      capabilities: {
-        transfers: { requested: true },
-      },
-      business_type: "individual",
-      business_profile: businessProfile,
-      email: provider.email,
-    });
-
-    // Generate onboarding link
-    const accountLink = await stripe.accountLinks.create({
-      account: account.id,
-      type: "account_onboarding",
-      refresh_url: `${process.env.CLIENT_URL}/provider/dashboard/profile?tab=bank-account`,
-      return_url: `${process.env.CLIENT_URL}/provider/dashboard/profile?tab=bank-account`,
-    });
-
-    // Update user with Stripe account info
-    await prisma.user.update({
-      where: { id: providerId },
+    // Create new
+    const newAccount = await prisma.bankAccount.create({
       data: {
-        stripeAccountId: account.id,
-        stripeAccountStatus: "PENDING",
-        stripeOnboardingUrl: accountLink.url,
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      msg: "Stripe onboarding link generated.",
-      onboardingUrl: accountLink.url,
-      accountId: account.id,
-    });
-  } catch (error) {
-    console.error("getProviderStripeOnboardingLink error:", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Server Error: Could not generate onboarding link.",
-      error: error.message,
-    });
-  }
-};
-
-/**
- * Check provider's Stripe account connection status
- */
-const checkProviderStripeAccountStatus = async (req, res) => {
-  const providerId = req.user.id;
-
-  try {
-    const provider = await prisma.user.findUnique({
-      where: { id: providerId },
-      select: {
-        id: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
-        stripeOnboardingUrl: true,
-      },
-    });
-
-    if (!provider) {
-      return res.status(404).json({
-        success: false,
-        msg: "Provider not found.",
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      msg: "Stripe account status retrieved successfully.",
-      stripeAccountId: provider.stripeAccountId,
-      stripeAccountStatus: provider.stripeAccountStatus || "NOT_CONNECTED",
-      stripeOnboardingUrl: provider.stripeOnboardingUrl,
-      hasConnected:
-        !!provider.stripeAccountId &&
-        provider.stripeAccountStatus === "VERIFIED",
-    });
-  } catch (error) {
-    console.error("checkProviderStripeAccountStatus error:", error);
-    return res.status(500).json({
-      success: false,
-      msg: "Server Error: Could not check Stripe account status.",
-      error: error.message,
-    });
-  }
-};
-
-/**
- * Get provider's bank account details from our database
- * Also auto-syncs from Stripe if no accounts found
- */
-const getProviderBankAccounts = async (req, res) => {
-  const providerId = req.user.id;
-
-  try {
-    // First, check if user has a Stripe account
-    const provider = await prisma.user.findUnique({
-      where: { id: providerId },
-      select: {
-        id: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
-      },
-    });
-
-    if (!provider) {
-      return res.status(404).json({
-        success: false,
-        msg: "Provider not found.",
-      });
-    }
-
-    // Fetch bank accounts from our database
-    let bankAccounts = await prisma.bankAccount.findMany({
-      where: {
         userId: providerId,
+        bankName,
+        accountNumber,
+        ifscCode,
+        accountHolderName,
+        upiId,
         isActive: true,
+        status: "ACTIVE",
+        isDefault: true,
+        stripeAccountId: null,
+        stripeExternalId: null,
+        last4: accountNumber.slice(-4),
+        country: "IN",
+        currency: "inr",
       },
-      orderBy: [
-        { isDefault: "desc" },
-        { createdAt: "desc" },
-      ],
     });
 
-    // If no accounts found but Stripe is connected, auto-sync from Stripe
-    if (bankAccounts.length === 0 && provider.stripeAccountId) {
-      console.log(`No bank accounts found in DB for provider ${providerId}, auto-syncing from Stripe...`);
-
-      try {
-        // Fetch external accounts from Stripe
-        const externalAccounts = await stripe.accounts.listExternalAccounts(
-          provider.stripeAccountId,
-          { object: "bank_account", limit: 10 }
-        );
-
-        console.log(`Found ${externalAccounts.data.length} external bank accounts in Stripe`);
-
-        if (externalAccounts.data.length > 0) {
-          // Store each bank account in our database
-          for (const bankAccount of externalAccounts.data) {
-            // Check if bank account already exists
-            const existing = await prisma.bankAccount.findFirst({
-              where: {
-                stripeExternalId: bankAccount.id,
-              },
-            });
-
-            if (!existing) {
-              // Create new bank account record
-              await prisma.bankAccount.create({
-                data: {
-                  userId: providerId,
-                  stripeAccountId: provider.stripeAccountId,
-                  stripeExternalId: bankAccount.id,
-                  bankName: bankAccount.bank_name,
-                  last4: bankAccount.last4,
-                  routingNumber: bankAccount.routing_number,
-                  country: bankAccount.country,
-                  currency: bankAccount.currency,
-                  status: bankAccount.status,
-                  accountHolderType: bankAccount.account_holder_type,
-                  fingerprint: bankAccount.fingerprint,
-                  isDefault: externalAccounts.data.length === 1,
-                },
-              });
-
-              console.log(`✓ Auto-synced bank account for provider ${providerId}: ${bankAccount.bank_name} ending in ${bankAccount.last4}`);
-            }
-          }
-
-          // Fetch the newly created accounts
-          bankAccounts = await prisma.bankAccount.findMany({
-            where: {
-              userId: providerId,
-              isActive: true,
-            },
-            orderBy: [
-              { isDefault: "desc" },
-              { createdAt: "desc" },
-            ],
-          });
-        }
-      } catch (syncError) {
-        console.error("Auto-sync error:", syncError);
-        // Don't fail the request if sync fails
-      }
-    }
-
-    return res.status(200).json({
+    return res.status(201).json({
       success: true,
-      msg: "Bank accounts retrieved successfully.",
-      bankAccounts,
-      count: bankAccounts.length,
-      autoSynced: bankAccounts.length > 0,
+      msg: "Bank account added successfully.",
+      bankAccount: newAccount,
     });
   } catch (error) {
-    console.error("getProviderBankAccounts error:", error);
+    console.error("addBankAccount error:", error);
     return res.status(500).json({
       success: false,
-      msg: "Server Error: Could not fetch bank accounts.",
+      msg: "Server Error: Could not add bank account.",
       error: error.message,
     });
   }
 };
 
 /**
- * Refresh provider's Stripe account status from Stripe API
+ * Get provider's bank account
  */
-const refreshProviderStripeStatus = async (req, res) => {
+const getBankAccount = async (req, res) => {
   const providerId = req.user.id;
 
   try {
-    const provider = await prisma.user.findUnique({
-      where: { id: providerId },
-      select: {
-        id: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
-      },
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { userId: providerId },
     });
-
-    if (!provider) {
-      return res.status(404).json({
-        success: false,
-        msg: "Provider not found.",
-      });
-    }
-
-    if (!provider.stripeAccountId) {
-      return res.status(400).json({
-        success: false,
-        msg: "No Stripe account connected.",
-      });
-    }
-
-    // Fetch latest account details from Stripe
-    const account = await stripe.accounts.retrieve(provider.stripeAccountId);
-
-    console.log(`Refreshing Stripe status for provider ${providerId}:`, {
-      charges_enabled: account.charges_enabled,
-      payouts_enabled: account.payouts_enabled,
-      details_submitted: account.details_submitted,
-    });
-
-    // Determine new status
-    let newStatus = "PENDING";
-    if (account.charges_enabled && account.payouts_enabled) {
-      newStatus = "VERIFIED";
-    } else if (account.details_submitted) {
-      newStatus = "RESTRICTED";
-    }
-
-    // Update user's Stripe account status
-    const updatedUser = await prisma.user.update({
-      where: { id: providerId },
-      data: {
-        stripeAccountStatus: newStatus,
-      },
-      select: {
-        id: true,
-        stripeAccountStatus: true,
-        stripeAccountId: true,
-      },
-    });
-
-    console.log(`✓ Refreshed Stripe status for provider ${providerId}: ${provider.stripeAccountStatus} → ${newStatus}`);
-
-    // Fetch external accounts
-    const externalAccounts = await stripe.accounts.listExternalAccounts(
-      provider.stripeAccountId,
-      { object: "bank_account", limit: 10 }
-    );
-
-    // Sync bank accounts
-    let syncedCount = 0;
-    for (const bankAccount of externalAccounts.data) {
-      const existing = await prisma.bankAccount.findFirst({
-        where: {
-          stripeExternalId: bankAccount.id,
-        },
-      });
-
-      if (!existing) {
-        await prisma.bankAccount.create({
-          data: {
-            userId: providerId,
-            stripeAccountId: provider.stripeAccountId,
-            stripeExternalId: bankAccount.id,
-            bankName: bankAccount.bank_name,
-            last4: bankAccount.last4,
-            routingNumber: bankAccount.routing_number,
-            country: bankAccount.country,
-            currency: bankAccount.currency,
-            status: bankAccount.status,
-            accountHolderType: bankAccount.account_holder_type,
-            fingerprint: bankAccount.fingerprint,
-            isDefault: externalAccounts.data.length === 1,
-          },
-        });
-        syncedCount++;
-      }
-    }
 
     return res.status(200).json({
       success: true,
-      msg: "Stripe account status refreshed successfully.",
-      previousStatus: provider.stripeAccountStatus,
-      newStatus: updatedUser.stripeAccountStatus,
-      bankAccountsFound: externalAccounts.data.length,
-      bankAccountsSynced: syncedCount,
+      msg: "Bank account fetched successfully.",
+      bankAccount: bankAccount,
+      hasAccount: !!bankAccount,
     });
   } catch (error) {
-    console.error("refreshProviderStripeStatus error:", error);
+    console.error("getBankAccount error:", error);
     return res.status(500).json({
       success: false,
-      msg: "Server Error: Could not refresh Stripe status.",
+      msg: "Server Error: Could not fetch bank account.",
       error: error.message,
     });
   }
 };
 
 /**
- * Sync provider's bank accounts from Stripe to our database
+ * Delete provider's bank account
  */
-const syncProviderBankAccounts = async (req, res) => {
+const deleteBankAccount = async (req, res) => {
   const providerId = req.user.id;
+  const { accountId } = req.params;
 
   try {
-    const provider = await prisma.user.findUnique({
-      where: { id: providerId },
-      select: {
-        id: true,
-        stripeAccountId: true,
-        stripeAccountStatus: true,
-      },
+    const bankAccount = await prisma.bankAccount.findFirst({
+      where: { id: accountId, userId: providerId },
     });
 
-    if (!provider) {
+    if (!bankAccount) {
       return res.status(404).json({
         success: false,
-        msg: "Provider not found.",
+        msg: "Bank account not found.",
       });
     }
 
-    if (!provider.stripeAccountId) {
-      return res.status(400).json({
-        success: false,
-        msg: "No Stripe account connected.",
-      });
-    }
-
-    // Fetch external accounts from Stripe
-    const account = await stripe.accounts.retrieve(provider.stripeAccountId);
-    const externalAccounts = await stripe.accounts.listExternalAccounts(
-      provider.stripeAccountId,
-      { object: "bank_account", limit: 10 }
-    );
-
-    console.log(`Syncing bank accounts for provider ${providerId}: Found ${externalAccounts.data.length} accounts`);
-
-    let syncedCount = 0;
-    for (const bankAccount of externalAccounts.data) {
-      // Check if bank account already exists
-      const existing = await prisma.bankAccount.findFirst({
-        where: {
-          stripeExternalId: bankAccount.id,
-        },
-      });
-
-      if (!existing) {
-        // Create new bank account record
-        await prisma.bankAccount.create({
-          data: {
-            userId: providerId,
-            stripeAccountId: provider.stripeAccountId,
-            stripeExternalId: bankAccount.id,
-            bankName: bankAccount.bank_name,
-            last4: bankAccount.last4,
-            routingNumber: bankAccount.routing_number,
-            country: bankAccount.country,
-            currency: bankAccount.currency,
-            status: bankAccount.status,
-            accountHolderType: bankAccount.account_holder_type,
-            fingerprint: bankAccount.fingerprint,
-            isDefault: externalAccounts.data.length === 1,
-          },
-        });
-        syncedCount++;
-        console.log(`✓ Synced bank account: ${bankAccount.bank_name} ending in ${bankAccount.last4}`);
-      } else {
-        // Update status if changed
-        if (existing.status !== bankAccount.status) {
-          await prisma.bankAccount.update({
-            where: { id: existing.id },
-            data: { status: bankAccount.status },
-          });
-          console.log(`✓ Updated bank account status: ${bankAccount.bank_name} → ${bankAccount.status}`);
-        }
-      }
-    }
+    await prisma.bankAccount.delete({
+      where: { id: accountId },
+    });
 
     return res.status(200).json({
       success: true,
-      msg: `Bank accounts synced successfully.`,
-      syncedCount,
-      totalAccounts: externalAccounts.data.length,
+      msg: "Bank account deleted successfully.",
     });
   } catch (error) {
-    console.error("syncProviderBankAccounts error:", error);
+    console.error("deleteBankAccount error:", error);
     return res.status(500).json({
       success: false,
-      msg: "Server Error: Could not sync bank accounts.",
+      msg: "Server Error: Could not delete bank account.",
       error: error.message,
     });
   }
@@ -1280,10 +848,7 @@ module.exports = {
   rejectPaymentRequest,
   getPaymentHistory,
   getPaymentStats,
-  getProviderStripeOnboardingLink,
-  checkProviderStripeAccountStatus,
-  getProviderBankAccountDetails,
-  getProviderBankAccounts,
-  syncProviderBankAccounts,
-  refreshProviderStripeStatus,
+  addBankAccount,
+  getBankAccount,
+  deleteBankAccount,
 };

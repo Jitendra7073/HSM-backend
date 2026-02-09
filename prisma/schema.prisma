@@ -100,14 +100,18 @@ model UserCardDetails {
 model BankAccount {
   id                String   @id @default(uuid())
   userId            String
-  stripeAccountId   String
-  stripeExternalId  String
+  stripeAccountId   String?
+  stripeExternalId  String?
   bankName          String
-  last4             String
+  accountNumber     String?
+  ifscCode          String?
+  accountHolderName String?
+  upiId             String?
+  last4             String?
   routingNumber     String?
-  country           String
-  currency          String
-  status            String
+  country           String?
+  currency          String?
+  status            String   @default("active")
   isDefault         Boolean  @default(false)
   isActive          Boolean  @default(true)
   accountHolderType String?

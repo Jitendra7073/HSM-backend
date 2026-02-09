@@ -9,6 +9,9 @@ const {
   rejectPaymentRequest,
   getPaymentHistory,
   getPaymentStats,
+  addBankAccount,
+  getBankAccount,
+  deleteBankAccount,
 } = require("../controllers/provider-payment.controller");
 
 /* ---------------- BUSINESS ROUTE ---------------- */
@@ -18,7 +21,6 @@ route
   .post(ProviderController.createBusiness)
   .patch(ProviderController.updateBusiness)
   .delete(ProviderController.deleteBusiness);
-
 
 /* ---------------- SERVICE ROUTE ---------------- */
 route
@@ -81,7 +83,10 @@ route.post("/assign-booking", ProviderController.assignBookingToProvider);
 route.get("/staff", ProviderController.getStaffMembers);
 route.get("/staff-status", ProviderController.getStaffStatusTracking);
 route.get("/staff/:staffId", ProviderController.getStaffMemberById);
-route.get("/staff/:staffId/details", ProviderController.getStaffDetailsForProvider);
+route.get(
+  "/staff/:staffId/details",
+  ProviderController.getStaffDetailsForProvider,
+);
 route.get("/staff/:staffId/bookings", ProviderController.getStaffBookings);
 route.patch("/staff/:staffId/status", ProviderController.updateStaffStatus);
 route.post("/staff/:staffId/unlink", ProviderController.unlinkStaffMember);
@@ -90,16 +95,23 @@ route.delete("/staff/:staffId", ProviderController.deleteStaffMember);
 /* ---------------- STAFF PAYMENT ROUTES ---------------- */
 route.get("/staff/payments/requests", getPaymentRequests);
 route.get("/staff/payments/requests/:requestId", getPaymentRequestDetails);
+route.get("/staff/payments/:requestId/details", getPaymentRequestDetails);
 route.post("/staff/payments/:requestId/approve", approvePaymentRequest);
 route.delete("/staff/payments/:requestId", rejectPaymentRequest);
 route.get("/staff/payments/stats", getPaymentStats);
+route.get("/staff/payments/history", getPaymentHistory);
+
+/* ---------------- BANK ACCOUNT ROUTES ---------------- */
+route.post("/bank-account", addBankAccount);
+route.get("/bank-account", getBankAccount);
+route.delete("/bank-account/:accountId", deleteBankAccount);
 
 const ProviderLeavesController = require("../controllers/provider-leaves.controller");
 
 /* ---------------- STAFF LEAVE MANAGEMENT ROUTES ---------------- */
 route.get(
   "/staff/leave/:businessProfileId/requests",
-  StaffController.getStaffLeaveForApproval
+  StaffController.getStaffLeaveForApproval,
 );
 route.get("/staff/:staffId/leave", ProviderLeavesController.getStaffLeaves);
 route.put("/staff/leave/:leaveId/approve", StaffController.approveStaffLeave);

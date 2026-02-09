@@ -1,6 +1,5 @@
 const BASE_URL = process.env.CLIENT_URL;
-const HSM_LOGO =
-  "https://res.cloudinary.com/dotm2ownb/image/upload/v1767090471/HSM-logo_mvqexc.png";
+const HSM_LOGO = process.env.WEBSITE_LOGO;
 
 /* ---------------- USER RESTRICTED EMAIL ---------------- */
 function userRestrictionEmailTemplate({ userName, reason }) {

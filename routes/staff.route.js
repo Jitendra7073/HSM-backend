@@ -4,8 +4,12 @@ const StaffController = require("../controllers/staff.controller");
 const {
   requestPaymentFromProvider,
   getStaffPaymentHistory,
-  getStripeOnboardingLink,
+  getBookingPaymentStatus,
+  getStaffEarnings,
   checkStaffProfileCompletion,
+  addBankAccount,
+  getBankAccount,
+  deleteBankAccount,
 } = require("../controllers/staff-payment.controller");
 
 /* ---------------- STAFF PROFILE ROUTES ---------------- */
@@ -48,8 +52,16 @@ route.post("/payments/request", requestPaymentFromProvider);
 // Get staff's payment history
 route.get("/payments/history", getStaffPaymentHistory);
 
-// Get Stripe onboarding link
-route.get("/stripe/onboarding", getStripeOnboardingLink);
+// Get staff's earnings
+route.get("/earnings", getStaffEarnings);
+
+// Get payment status for a specific booking
+route.get("/payments/booking/:bookingId/status", getBookingPaymentStatus);
+
+// Bank Account Management
+route.post("/bank-account", addBankAccount);
+route.get("/bank-account", getBankAccount);
+route.delete("/bank-account/:accountId", deleteBankAccount);
 
 // Check staff profile completion status
 route.get("/profile/completion", checkStaffProfileCompletion);

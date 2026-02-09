@@ -362,8 +362,6 @@ const applyForStaffApplication = async (req, res) => {
   }
 };
 
-
-
 const getStaffBookings = async (req, res) => {
   const staffId = req.user.id;
   const status = req.query.status; // completed, ongoing, upcoming, cancelled
@@ -444,6 +442,8 @@ const getStaffBookings = async (req, res) => {
             status: true,
             assignedById: true,
             createdAt: true,
+            staffPaymentType: true,
+            staffPaymentValue: true,
           },
         },
       },
@@ -452,11 +452,36 @@ const getStaffBookings = async (req, res) => {
       },
     });
 
+    const processedBookings = bookings.map((booking) => {
+      const assignment = booking.StaffAssignBooking[0];
+      let staffEarnings = booking.service.price; // Default to service price if no specific setting
+
+      if (assignment) {
+        if (assignment.staffPaymentType === "FIXED_AMOUNT") {
+          staffEarnings = assignment.staffPaymentValue;
+        } else if (assignment.staffPaymentType === "PERCENTAGE") {
+          // Calculate percentage of total amount (or provider earnings if available/preferred)
+          const baseAmount =
+            booking.providerEarnings || booking.totalAmount || 0;
+          staffEarnings = (baseAmount * assignment.staffPaymentValue) / 100;
+        }
+      }
+
+      return {
+        ...booking,
+        service: {
+          ...booking.service,
+          price: staffEarnings, // Replace service price with staff earnings
+          originalPrice: booking.service.price, // Keep original price just in case
+        },
+      };
+    });
+
     return res.status(200).json({
       success: true,
       msg: "Staff bookings fetched successfully.",
-      count: bookings.length,
-      bookings,
+      count: processedBookings.length,
+      bookings: processedBookings,
     });
   } catch (error) {
     console.error("getStaffBookings error:", error);
@@ -508,14 +533,21 @@ const getDashboardStats = async (req, res) => {
         b.bookingStatus === "COMPLETED" || b.trackingStatus === "COMPLETED",
     ).length;
 
-    // Calculate total earnings (only from paid/completed bookings)
-    const totalEarnings = allBookings
-      .filter(
-        (b) =>
-          b.paymentStatus === "PAID" &&
-          (b.bookingStatus === "COMPLETED" || b.trackingStatus === "COMPLETED"),
-      )
-      .reduce((sum, b) => sum + (b.providerEarnings || 0), 0);
+    // Calculate total earnings from StaffPayment table (Actual paid amount)
+    const paidPayments = await prisma.staffPayment.findMany({
+      where: {
+        staffId: staffId,
+        status: "PAID",
+      },
+      select: {
+        staffAmount: true,
+      },
+    });
+
+    const totalEarnings = paidPayments.reduce(
+      (sum, p) => sum + p.staffAmount,
+      0,
+    );
 
     // Get upcoming bookings (next 5)
     const today = new Date();
@@ -565,6 +597,15 @@ const getDashboardStats = async (req, res) => {
             mobile: true,
           },
         },
+        StaffAssignBooking: {
+          where: {
+            assignedStaffId: staffId,
+          },
+          select: {
+            staffPaymentType: true,
+            staffPaymentValue: true,
+          },
+        },
       },
       orderBy: [{ date: "asc" }, { slot: { time: "asc" } }],
       take: 5,
@@ -585,7 +626,32 @@ const getDashboardStats = async (req, res) => {
         endDate: true,
       },
     });
-    console.log("Current leave :", currentLeave)
+    console.log("Current leave :", currentLeave);
+
+    // Process upcoming bookings to show staff earnings instead of service price
+    const processedUpcomingBookings = upcomingBookings.map((booking) => {
+      const assignment = booking.StaffAssignBooking[0];
+      let staffEarnings = booking.service.price; // Default to service price if no specific setting
+
+      if (assignment) {
+        if (assignment.staffPaymentType === "FIXED_AMOUNT") {
+          staffEarnings = assignment.staffPaymentValue;
+        } else if (assignment.staffPaymentType === "PERCENTAGE") {
+          const baseAmount =
+            booking.providerEarnings || booking.totalAmount || 0;
+          staffEarnings = (baseAmount * assignment.staffPaymentValue) / 100;
+        }
+      }
+
+      return {
+        ...booking,
+        service: {
+          ...booking.service,
+          price: staffEarnings, // Replace service price with staff earnings
+          originalPrice: booking.service.price, // Keep original price just in case
+        },
+      };
+    });
 
     return res.status(200).json({
       success: true,
@@ -595,7 +661,7 @@ const getDashboardStats = async (req, res) => {
         inProgressBookings,
         completedBookings,
         totalEarnings,
-        upcomingBookings,
+        upcomingBookings: processedUpcomingBookings,
         isOnLeave: !!currentLeave,
         leaveDetails: currentLeave,
       },
@@ -1071,7 +1137,7 @@ const getStaffDetailsForProvider = async (req, res) => {
     const averageRating =
       staffFeedbacks.length > 0
         ? staffFeedbacks.reduce((sum, f) => sum + f.rating, 0) /
-        staffFeedbacks.length
+          staffFeedbacks.length
         : 0;
 
     // Calculate on-time performance
@@ -1125,8 +1191,10 @@ const getStaffDetailsForProvider = async (req, res) => {
     else if (activeBookings.length > 0 && currentBooking) {
       if (currentBooking.trackingStatus === "SERVICE_STARTED") {
         finalAvailability = "ON_WORK";
-      } else if (currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
-        currentBooking.trackingStatus === "BOOKING_STARTED") {
+      } else if (
+        currentBooking.trackingStatus === "PROVIDER_ON_THE_WAY" ||
+        currentBooking.trackingStatus === "BOOKING_STARTED"
+      ) {
         finalAvailability = "ON_WORK";
       } else {
         finalAvailability = "BUSY";
@@ -1151,11 +1219,11 @@ const getStaffDetailsForProvider = async (req, res) => {
         availability: finalAvailability,
         currentBooking: currentBooking
           ? {
-            service: currentBooking.service.name,
-            customer: currentBooking.user.name,
-            time: currentBooking.slot?.time,
-            date: currentBooking.date,
-          }
+              service: currentBooking.service.name,
+              customer: currentBooking.user.name,
+              time: currentBooking.slot?.time,
+              date: currentBooking.date,
+            }
           : null,
         performance: {
           totalBookings,
@@ -1869,19 +1937,27 @@ const approveStaffLeave = async (req, res) => {
       await NotificationService.sendNotification(
         staffTokens,
         "Leave Approved",
-        `Your leave request from ${new Date(updatedLeave.startDate).toLocaleDateString()} to ${new Date(updatedLeave.endDate).toLocaleDateString()} has been approved.`,
+        `Your leave request from ${new Date(
+          updatedLeave.startDate,
+        ).toLocaleDateString()} to ${new Date(
+          updatedLeave.endDate,
+        ).toLocaleDateString()} has been approved.`,
         {
           type: "LEAVE_APPROVED",
           leaveId: updatedLeave.id,
-        }
+        },
       );
     }
 
     // Store in-app notification
     await storeNotification(
       "Leave Approved",
-      `Your leave request from ${new Date(updatedLeave.startDate).toLocaleDateString()} to ${new Date(updatedLeave.endDate).toLocaleDateString()} has been approved.`,
-      leave.staffId
+      `Your leave request from ${new Date(
+        updatedLeave.startDate,
+      ).toLocaleDateString()} to ${new Date(
+        updatedLeave.endDate,
+      ).toLocaleDateString()} has been approved.`,
+      leave.staffId,
     );
 
     return res.status(200).json({
@@ -1982,7 +2058,7 @@ const rejectStaffLeave = async (req, res) => {
         {
           type: "LEAVE_REJECTED",
           leaveId: updatedLeave.id,
-        }
+        },
       );
     }
 
@@ -1990,7 +2066,7 @@ const rejectStaffLeave = async (req, res) => {
     await storeNotification(
       "Leave Rejected",
       `Your leave request has been rejected. Reason: ${rejectReason}`,
-      leave.staffId
+      leave.staffId,
     );
 
     return res.status(200).json({

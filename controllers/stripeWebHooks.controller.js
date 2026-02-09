@@ -326,8 +326,9 @@ const handleCheckoutCompleted = async (session, req) => {
 
     const payload = {
       title: "New Booking Received",
-      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${user.name
-        }`,
+      body: `New booking for ${services.map((s) => s.name).join(", ")} by ${
+        user.name
+      }`,
       type: "BOOKING_CREATED",
     };
 
@@ -474,10 +475,10 @@ const handleProviderSubscriptionCompleted = async (session, req) => {
     subscription.status === "trialing"
       ? subscription.trial_end
       : subscription.current_period_end ??
-      subscription.created +
-      (priceItem.price.recurring?.interval === "year"
-        ? 365 * 24 * 60 * 60
-        : 30 * 24 * 60 * 60);
+        subscription.created +
+          (priceItem.price.recurring?.interval === "year"
+            ? 365 * 24 * 60 * 60
+            : 30 * 24 * 60 * 60);
 
   const currentPeriodStart = new Date(periodStartUnix * 1000);
   const currentPeriodEnd = new Date(periodEndUnix * 1000);
@@ -701,13 +702,14 @@ const handleProviderSubscriptionUpdated = async (subscription, req) => {
           subject: "Subscription Cancellation Scheduled",
           template: providerSubscriptionCancelledEmailTemplate
             ? providerSubscriptionCancelledEmailTemplate({
-              userName: user.name,
-              endDate: new Date(periodEndUnix * 1000).toLocaleDateString(),
-            })
-            : `<p>Hello ${user.name
-            },<br>Your subscription has been cancelled. It will remain active until ${new Date(
-              periodEndUnix * 1000,
-            ).toLocaleDateString()}.</p>`,
+                userName: user.name,
+                endDate: new Date(periodEndUnix * 1000).toLocaleDateString(),
+              })
+            : `<p>Hello ${
+                user.name
+              },<br>Your subscription has been cancelled. It will remain active until ${new Date(
+                periodEndUnix * 1000,
+              ).toLocaleDateString()}.</p>`,
         });
 
         const { storeNotification } = require("./notification.controller");
@@ -787,127 +789,6 @@ const handlePaymentFailed = async (intent, req) => {
       businessName: cart[0].business.businessName,
     }),
   });
-};
-
-/* ------------------------- STRIPE CONNECT ACCOUNT UPDATED ------------------------- */
-
-/**
- * Handle Stripe Connect account updates (for staff payouts)
- * Updates staff stripeAccountStatus when their account status changes
- * Also fetches and stores bank account details whenever they're added
- */
-const handleAccountUpdated = async (account, req) => {
-  try {
-    console.log(`Processing account.updated for Stripe account: ${account.id}`);
-
-    // Find user by stripeAccountId
-    const user = await prisma.user.findFirst({
-      where: {
-        stripeAccountId: account.id,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        stripeAccountStatus: true,
-      },
-    });
-
-    if (!user) {
-      console.log(`No user found for Stripe account: ${account.id}`);
-      return;
-    }
-
-    // Determine account status based on Stripe data
-    let newStatus = "PENDING";
-
-    // Check if account has all requirements collected
-    if (account.charges_enabled && account.payouts_enabled) {
-      newStatus = "VERIFIED";
-    } else if (account.details_submitted) {
-      newStatus = "RESTRICTED";
-    }
-
-    // Update user's Stripe account status
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        stripeAccountStatus: newStatus,
-      },
-    });
-
-    console.log(`Updated Stripe account status for user ${user.id}: ${user.stripeAccountStatus} → ${newStatus}`);
-
-    // Fetch and store bank account details whenever external accounts exist
-    // Don't wait for full verification - save as soon as bank accounts are added
-    try {
-      const externalAccounts = await stripe.accounts.listExternalAccounts(
-        account.id,
-        { object: "bank_account", limit: 10 }
-      );
-
-      console.log(`Found ${externalAccounts.data.length} external bank accounts for user ${user.id}`);
-
-      if (externalAccounts.data.length > 0) {
-        // Store each bank account in our database
-        for (const bankAccount of externalAccounts.data) {
-          // Check if bank account already exists
-          const existing = await prisma.bankAccount.findFirst({
-            where: {
-              stripeExternalId: bankAccount.id,
-            },
-          });
-
-          if (!existing) {
-            // Create new bank account record
-            await prisma.bankAccount.create({
-              data: {
-                userId: user.id,
-                stripeAccountId: account.id,
-                stripeExternalId: bankAccount.id,
-                bankName: bankAccount.bank_name,
-                last4: bankAccount.last4,
-                routingNumber: bankAccount.routing_number,
-                country: bankAccount.country,
-                currency: bankAccount.currency,
-                status: bankAccount.status,
-                accountHolderType: bankAccount.account_holder_type,
-                fingerprint: bankAccount.fingerprint,
-                isDefault: externalAccounts.data.length === 1, // First account is default
-              },
-            });
-
-            console.log(`✓ Stored new bank account for user ${user.id}: ${bankAccount.bank_name} ending in ${bankAccount.last4}`);
-          } else {
-            // Update existing bank account if status changed
-            if (existing.status !== bankAccount.status) {
-              await prisma.bankAccount.update({
-                where: { id: existing.id },
-                data: {
-                  status: bankAccount.status,
-                },
-              });
-              console.log(`✓ Updated bank account status for user ${user.id}: ${bankAccount.bank_name} → ${bankAccount.status}`);
-            }
-          }
-        }
-      }
-    } catch (bankError) {
-      console.error("Error storing bank account details:", bankError);
-      // Don't fail the webhook if bank account storage fails
-    }
-
-    // Send notification if account was just verified
-    if (newStatus === "VERIFIED" && user.stripeAccountStatus !== "VERIFIED") {
-      await storeNotification(
-        "💳 Stripe Account Verified",
-        "Your Stripe account has been verified and you can now receive payments.",
-        user.id,
-      );
-    }
-  } catch (error) {
-    console.error("Error in handleAccountUpdated:", error);
-  }
 };
 
 module.exports = { stripeWebhookHandler };

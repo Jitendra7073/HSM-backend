@@ -16,6 +16,15 @@ route.patch("/users/:userId/restrict", AdminController.restrictUser);
 /* ------------------ STAFF MANAGEMENT ROUTES ------------------ */
 route.get("/staff", AdminController.getAllStaff);
 route.get("/staff/:staffId", AdminController.getStaffById);
+// Staff leaves management
+route.get("/staff/:staffId/leaves", AdminController.getStaffLeaves);
+route.patch("/staff/leaves/:leaveId", AdminController.updateStaffLeaveStatus);
+// Staff payments management
+route.get("/staff/:staffId/payments", AdminController.getStaffPayments);
+// Staff bookings management
+route.get("/staff/:staffId/bookings", AdminController.getStaffBookings);
+// Staff businesses management
+route.get("/staff/:staffId/businesses", AdminController.getStaffBusinesses);
 // Resusing User restriction logic as Staff are Users
 route.patch("/staff/:userId/restrict", AdminController.restrictUser);
 route.patch(
