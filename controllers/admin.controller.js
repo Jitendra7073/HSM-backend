@@ -211,7 +211,7 @@ const restrictUser = async (req, res) => {
     // Send notification email
     await sendMail({
       email: user.email,
-      subject: "Your Account Has Been Restricted - Fixora",
+      subject: "Your Account Has Been Restricted - HomHelpers",
       template: userRestrictionEmailTemplate({
         userName: user.name,
         reason: reason,
@@ -285,7 +285,7 @@ const liftUserRestriction = async (req, res) => {
     // Send notification email
     await sendMail({
       email: user.email,
-      subject: "Your Account Restriction Has Been Lifted - Fixora",
+      subject: "Your Account Restriction Has Been Lifted - HomHelpers",
       template: userRestrictionLiftedEmailTemplate({ userName: user.name }),
     });
 
@@ -496,7 +496,7 @@ const approveBusiness = async (req, res) => {
     // Send approval email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Has Been Approved - Fixora",
+      subject: "Your Business Has Been Approved - HomHelpers",
       template: businessApprovalEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -579,7 +579,7 @@ const rejectBusiness = async (req, res) => {
     // Send rejection email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Has Been Rejected - Fixora",
+      subject: "Your Business Has Been Rejected - HomHelpers",
       template: businessRejectionEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -669,7 +669,7 @@ const restrictBusiness = async (req, res) => {
     // Send notification email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Has Been Restricted - Fixora",
+      subject: "Your Business Has Been Restricted - HomHelpers",
       template: businessRestrictionEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -732,7 +732,7 @@ const liftBusinessRestriction = async (req, res) => {
     // Send notification email
     await sendMail({
       email: business.user.email,
-      subject: "Your Business Restriction Has Been Lifted - Fixora",
+      subject: "Your Business Restriction Has Been Lifted - HomHelpers",
       template: businessRestrictionLiftedEmailTemplate({
         providerName: business.user.name,
         businessName: business.businessName,
@@ -968,7 +968,7 @@ const restrictService = async (req, res) => {
     // Send notification email
     await sendMail({
       email: service.businessProfile.user.email,
-      subject: "Your Service Has Been Restricted - Fixora",
+      subject: "Your Service Has Been Restricted - HomHelpers",
       template: serviceRestrictionEmailTemplate({
         providerName: service.businessProfile.user.name,
         businessName: service.businessProfile.businessName,
@@ -1063,7 +1063,7 @@ const liftServiceRestriction = async (req, res) => {
     // Send notification email
     await sendMail({
       email: service.businessProfile.user.email,
-      subject: "Your Service Restriction Has Been Lifted - Fixora",
+      subject: "Your Service Restriction Has Been Lifted - HomHelpers",
       template: serviceRestrictionLiftedEmailTemplate({
         providerName: service.businessProfile.user.name,
         businessName: service.businessProfile.businessName,
@@ -1656,23 +1656,46 @@ const updateSubscriptionPlan = async (req, res) => {
     }
 
     // Retrieve Stripe Price to get Product ID
-    const existingStripePrice = await stripe.prices.retrieve(
-      existingPlan.stripePriceId,
-    );
-    const productId = existingStripePrice.product;
+    let productId;
+    let forceNewPrice = false;
+
+    try {
+      const existingStripePrice = await stripe.prices.retrieve(
+        existingPlan.stripePriceId,
+      );
+      productId = existingStripePrice.product;
+    } catch (err) {
+      if (err.code === "resource_missing") {
+        console.warn(
+          `Stripe price ${existingPlan.stripePriceId} not found. Creating new Stripe resources.`,
+        );
+        const newProduct = await stripe.products.create({
+          name: name || existingPlan.name,
+          active: isActive !== undefined ? isActive : existingPlan.isActive,
+        });
+        productId = newProduct.id;
+        forceNewPrice = true;
+      } else {
+        throw err;
+      }
+    }
 
     let newStripePriceId = existingPlan.stripePriceId;
 
-    // 1. Update Product Name if changed
-    if (name && name !== existingPlan.name) {
+    // 1. Update Product Name if changed (only if not forced new)
+    if (!forceNewPrice && name && name !== existingPlan.name) {
       await stripe.products.update(productId, { name });
     }
 
     // 2. Handle Price Change (Create New Price)
-    if (price && price !== existingPlan.price) {
+    const priceToUse = price !== undefined ? price : existingPlan.price;
+    const shouldCreatePrice =
+      forceNewPrice || (price !== undefined && price !== existingPlan.price);
+
+    if (shouldCreatePrice) {
       const newPrice = await stripe.prices.create({
         product: productId,
-        unit_amount: price * 100,
+        unit_amount: priceToUse * 100,
         currency: "inr",
         recurring: { interval: existingPlan.interval },
       });
@@ -1682,7 +1705,7 @@ const updateSubscriptionPlan = async (req, res) => {
     }
 
     // 3. Update Stripe Product Active Status
-    if (typeof isActive === "boolean") {
+    if (!forceNewPrice && typeof isActive === "boolean") {
       await stripe.products.update(productId, { active: isActive });
     }
 
@@ -2100,7 +2123,733 @@ const getRevenueStats = async (req, res) => {
   }
 };
 
+/* --------------- STAFF MANAGEMENT --------------- */
+
+// Get all staff with pagination and stats
+const getAllStaff = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search, status } = req.query; // status can be restricted/active
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = { role: "staff" };
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { mobile: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    if (status === "restricted") {
+      where.isRestricted = true;
+    } else if (status === "active") {
+      where.isRestricted = false;
+    }
+
+    const staffMembers = await prisma.user.findMany({
+      where,
+      skip,
+      take,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        mobile: true,
+        isRestricted: true,
+        restrictedAt: true,
+        restrictedBy: true,
+        restrictionReason: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Get detailed stats for each staff member
+    const formatted = await Promise.all(
+      staffMembers.map(async (staff) => {
+        // Get associated businesses (approved only)
+        const businesses = await prisma.staffApplications.findMany({
+          where: {
+            staffId: staff.id,
+            status: "APPROVED",
+          },
+          include: {
+            businessProfile: {
+              select: {
+                id: true,
+                businessName: true,
+              },
+            },
+          },
+        });
+
+        // Get booking stats
+        const allBookings = await prisma.staffAssignBooking.findMany({
+          where: {
+            assignedStaffId: staff.id,
+          },
+          include: {
+            booking: {
+              select: {
+                bookingStatus: true,
+                trackingStatus: true,
+                staffPaymentStatus: true,
+                providerEarnings: true,
+              },
+            },
+          },
+        });
+
+        const totalBookings = allBookings.length;
+        const completedBookings = allBookings.filter(
+          (b) =>
+            b.booking.bookingStatus === "COMPLETED" ||
+            b.booking.trackingStatus === "COMPLETED",
+        ).length;
+
+        // Calculate completion rate
+        const completionRate =
+          totalBookings > 0
+            ? Math.round((completedBookings / totalBookings) * 100)
+            : 0;
+
+        // Calculate total earnings
+        const totalEarnings = allBookings
+          .filter(
+            (b) =>
+              b.booking.paymentStatus === "PAID" &&
+              (b.booking.bookingStatus === "COMPLETED" ||
+                b.booking.trackingStatus === "COMPLETED"),
+          )
+          .reduce((sum, b) => sum + (b.booking.providerEarnings || 0), 0);
+
+        // Get average rating from reviews
+        const reviews = await prisma.staffReview.findMany({
+          where: { staffId: staff.id },
+        });
+
+        const averageRating =
+          reviews.length > 0
+            ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+            : 0;
+
+        return {
+          ...staff,
+          associatedBusinesses: businesses
+            .map((b) => b.businessProfile.businessName)
+            .join(", "),
+          totalBookings,
+          completedBookings,
+          completionRate,
+          totalEarnings,
+          averageRating: parseFloat(averageRating.toFixed(1)),
+          reviewCount: reviews.length,
+        };
+      }),
+    );
+
+    const total = await prisma.user.count({ where });
+
+    res.status(200).json({
+      success: true,
+      data: formatted,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching staff:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const getStaffById = async (req, res) => {
+  // Reuse getUserById or custom? Custom for specific stats.
+  try {
+    const { staffId } = req.params;
+    const staff = await prisma.user.findUnique({
+      where: { id: staffId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        mobile: true,
+        role: true,
+        isRestricted: true,
+        restrictedAt: true,
+        restrictedBy: true,
+        restrictionReason: true,
+        restrictionLiftedAt: true,
+        createdAt: true,
+      },
+    });
+
+    if (!staff || staff.role !== "staff")
+      return res.status(404).json({ success: false, msg: "Staff not found" });
+
+    // Get associated businesses
+    const businessApplications = await prisma.staffApplications.findMany({
+      where: { staffId },
+      include: {
+        businessProfile: {
+          select: {
+            id: true,
+            businessName: true,
+            contactEmail: true,
+            phoneNumber: true,
+            isActive: true,
+            category: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Get all booking assignments with full details
+    const bookingAssignments = await prisma.staffAssignBooking.findMany({
+      where: { assignedStaffId: staffId },
+      include: {
+        booking: {
+          include: {
+            service: {
+              select: {
+                name: true,
+                price: true,
+              },
+            },
+            businessProfile: {
+              select: {
+                businessName: true,
+              },
+            },
+            user: {
+              select: {
+                name: true,
+                mobile: true,
+              },
+            },
+            slot: {
+              select: {
+                time: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Calculate performance metrics
+    const totalBookings = bookingAssignments.length;
+    const completedBookings = bookingAssignments.filter(
+      (b) =>
+        b.booking.bookingStatus === "COMPLETED" ||
+        b.booking.trackingStatus === "COMPLETED",
+    ).length;
+
+    const completionRate =
+      totalBookings > 0
+        ? Math.round((completedBookings / totalBookings) * 100)
+        : 0;
+
+    // Calculate total earnings
+    const totalEarnings = bookingAssignments
+      .filter(
+        (b) =>
+          b.booking.paymentStatus === "PAID" &&
+          (b.booking.bookingStatus === "COMPLETED" ||
+            b.booking.trackingStatus === "COMPLETED"),
+      )
+      .reduce((sum, b) => sum + (b.booking.providerEarnings || 0), 0);
+
+    // Get reviews with business names
+    const reviews = await prisma.staffReview.findMany({
+      where: { staffId },
+      include: {
+        businessProfile: {
+          select: {
+            businessName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const averageRating =
+      reviews.length > 0
+        ? reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+        : 0;
+
+    // Get recent activity log (optional enhancement)
+    const recentActivity = await prisma.providerAdminActivityLog.findMany({
+      where: { actorId: staffId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
+
+    const response = {
+      ...staff,
+      businesses: businessApplications.map((app) => ({
+        id: app.businessProfile.id,
+        businessName: app.businessProfile.businessName,
+        contactEmail: app.businessProfile.contactEmail,
+        phoneNumber: app.businessProfile.phoneNumber,
+        category: app.businessProfile.category?.name,
+        isActive: app.businessProfile.isActive,
+        applicationStatus: app.status,
+        joinedAt: app.createdAt,
+      })),
+      bookings: bookingAssignments.map((assignment) => ({
+        id: assignment.booking.id,
+        serviceName: assignment.booking.service.name,
+        businessName: assignment.booking.businessProfile.businessName,
+        customerName: assignment.booking.user.name,
+        customerPhone: assignment.booking.user.mobile,
+        date: assignment.booking.date,
+        time: assignment.booking.slot?.time,
+        amount: assignment.booking.totalAmount,
+        bookingStatus: assignment.booking.bookingStatus,
+        trackingStatus: assignment.booking.trackingStatus,
+        paymentStatus: assignment.booking.paymentStatus,
+        assignedAt: assignment.createdAt,
+        assignmentStatus: assignment.status,
+      })),
+      performanceMetrics: {
+        totalBookings,
+        completedBookings,
+        completionRate,
+        totalEarnings,
+        averageRating: parseFloat(averageRating.toFixed(1)),
+        reviewCount: reviews.length,
+      },
+      reviews: reviews.map((review) => ({
+        id: review.id,
+        rating: review.rating,
+        review: review.review,
+        businessName: review.businessProfile.businessName,
+        createdAt: review.createdAt,
+      })),
+      recentActivity,
+    };
+
+    res.status(200).json({ success: true, data: response });
+  } catch (error) {
+    console.error("Error fetching staff details:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* --------------- STAFF LEAVES MANAGEMENT (Admin) --------------- */
+
+// Get staff leaves for admin
+const getStaffLeaves = async (req, res) => {
+  try {
+    const { staffId } = req.params;
+    const { page = 1, limit = 10, status } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = { staffId };
+    if (status && status !== "all") {
+      where.status = status.toUpperCase();
+    }
+
+    const [leaves, total] = await Promise.all([
+      prisma.staffLeave.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          staff: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      }),
+      prisma.staffLeave.count({ where }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: leaves,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching staff leaves:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Update staff leave status by admin
+const updateStaffLeaveStatus = async (req, res) => {
+  try {
+    const { leaveId } = req.params;
+    const { status, rejectReason } = req.body;
+    const adminId = req.user.id;
+
+    if (!["APPROVED", "REJECTED"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Must be APPROVED or REJECTED",
+      });
+    }
+
+    const leave = await prisma.staffLeave.findUnique({
+      where: { id: leaveId },
+      include: {
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!leave) {
+      return res.status(404).json({
+        success: false,
+        message: "Leave request not found",
+      });
+    }
+
+    const updateData = {
+      status,
+      approvedBy: adminId,
+    };
+
+    if (status === "APPROVED") {
+      updateData.approvedAt = new Date();
+    } else if (status === "REJECTED") {
+      updateData.rejectedAt = new Date();
+      updateData.rejectReason = rejectReason || "Rejected by admin";
+    }
+
+    const updatedLeave = await prisma.staffLeave.update({
+      where: { id: leaveId },
+      data: updateData,
+    });
+
+    // Send notification to staff
+    await storeNotification(
+      `Leave Request ${status}`,
+      `Your leave request from ${new Date(leave.startDate).toLocaleDateString()} to ${new Date(leave.endDate).toLocaleDateString()} has been ${status.toLowerCase()}${status === "REJECTED" && rejectReason ? `. Reason: ${rejectReason}` : ""}.`,
+      leave.staffId,
+    );
+
+    await logProviderAdminActivity({
+      actorId: adminId,
+      actorType: "admin",
+      actionType: `STAFF_LEAVE_${status}`,
+      status: LogStatus.SUCCESS,
+      metadata: {
+        leaveId,
+        staffId: leave.staffId,
+        staffName: leave.staff.name,
+        rejectReason,
+      },
+      req,
+      targetId: leaveId,
+      targetType: "staff_leave",
+      description: `${status} leave request for ${leave.staff.name}`,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Leave request ${status.toLowerCase()} successfully`,
+      data: updatedLeave,
+    });
+  } catch (error) {
+    console.error("Error updating staff leave:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* --------------- STAFF PAYMENTS MANAGEMENT (Admin) --------------- */
+
+// Get staff payment history for admin
+const getStaffPayments = async (req, res) => {
+  try {
+    const { staffId } = req.params;
+    const { page = 1, limit = 10, status } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = { staffId };
+    if (status && status !== "all") {
+      where.status = status.toUpperCase();
+    }
+
+    const [payments, total] = await Promise.all([
+      prisma.staffPayment.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          booking: {
+            select: {
+              id: true,
+              date: true,
+              totalAmount: true,
+              service: {
+                select: {
+                  name: true,
+                },
+              },
+              businessProfile: {
+                select: {
+                  businessName: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.staffPayment.count({ where }),
+    ]);
+
+    // Calculate totals
+    const totals = await prisma.staffPayment.aggregate({
+      where: { staffId },
+      _sum: {
+        staffAmount: true,
+        requestedAmount: true,
+      },
+      _count: true,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: payments,
+      summary: {
+        totalPayments: totals._count,
+        totalEarnings: totals._sum.staffAmount || 0,
+        totalRequested: totals._sum.requestedAmount || 0,
+      },
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching staff payments:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* --------------- STAFF BOOKINGS MANAGEMENT (Admin) --------------- */
+
+// Get staff assigned bookings for admin
+const getStaffBookings = async (req, res) => {
+  try {
+    const { staffId } = req.params;
+    const { page = 1, limit = 10, status, dateFrom, dateTo } = req.query;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = { assignedStaffId: staffId };
+
+    if (status && status !== "all") {
+      where.status = status.toUpperCase();
+    }
+
+    const bookingWhere = {};
+    if (dateFrom) {
+      bookingWhere.date = { gte: dateFrom };
+    }
+    if (dateTo) {
+      bookingWhere.date = { ...bookingWhere.date, lte: dateTo };
+    }
+
+    const [assignments, total] = await Promise.all([
+      prisma.staffAssignBooking.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: "desc" },
+        include: {
+          booking: {
+            include: {
+              service: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                },
+              },
+              businessProfile: {
+                select: {
+                  id: true,
+                  businessName: true,
+                },
+              },
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  mobile: true,
+                  email: true,
+                },
+              },
+              slot: {
+                select: {
+                  time: true,
+                },
+              },
+              address: {
+                select: {
+                  street: true,
+                  city: true,
+                  state: true,
+                  postalCode: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.staffAssignBooking.count({ where }),
+    ]);
+
+    // Get booking stats
+    const allAssignments = await prisma.staffAssignBooking.findMany({
+      where: { assignedStaffId: staffId },
+      include: {
+        booking: {
+          select: {
+            bookingStatus: true,
+            trackingStatus: true,
+          },
+        },
+      },
+    });
+
+    const stats = {
+      total: allAssignments.length,
+      pending: allAssignments.filter((a) => a.status === "PENDING").length,
+      accepted: allAssignments.filter((a) => a.status === "ACCEPTED").length,
+      completed: allAssignments.filter(
+        (a) =>
+          a.status === "COMPLETED" ||
+          a.booking.bookingStatus === "COMPLETED" ||
+          a.booking.trackingStatus === "COMPLETED",
+      ).length,
+      cancelled: allAssignments.filter((a) => a.status === "CANCELLED").length,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: assignments,
+      stats,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching staff bookings:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* --------------- STAFF BUSINESSES MANAGEMENT (Admin) --------------- */
+
+// Get staff associated businesses for admin
+const getStaffBusinesses = async (req, res) => {
+  try {
+    const { staffId } = req.params;
+    const { status } = req.query;
+
+    const where = { staffId };
+    if (status && status !== "all") {
+      where.status = status.toUpperCase();
+    }
+
+    const applications = await prisma.staffApplications.findMany({
+      where,
+      include: {
+        businessProfile: {
+          select: {
+            id: true,
+            businessName: true,
+            contactEmail: true,
+            phoneNumber: true,
+            isActive: true,
+            isApproved: true,
+            category: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Get stats
+    const stats = {
+      total: applications.length,
+      approved: applications.filter((a) => a.status === "APPROVED").length,
+      pending: applications.filter((a) => a.status === "PENDING").length,
+      rejected: applications.filter((a) => a.status === "REJECTED").length,
+    };
+
+    res.status(200).json({
+      success: true,
+      data: applications,
+      stats,
+    });
+  } catch (error) {
+    console.error("Error fetching staff businesses:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
 module.exports = {
+  getAllStaff,
+  getStaffById,
+  getStaffLeaves,
+  updateStaffLeaveStatus,
+  getStaffPayments,
+  getStaffBookings,
+  getStaffBusinesses,
   getAllUsers,
   getUserById,
   restrictUser,

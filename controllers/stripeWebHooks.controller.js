@@ -20,8 +20,14 @@ const { storeNotification } = require("./notification.controller");
 /* ---------------------------- STRIPE WEBHOOK HANDLER ---------------------------- */
 
 const stripeWebhookHandler = async (req, res) => {
+  /* ---------------- DEBUG LOGS ---------------- */
+  console.log("🔔 Webhook received!");
+
   const sig = req.headers["stripe-signature"];
-  if (!sig) return res.status(400).send("Missing stripe-signature");
+  if (!sig) {
+    console.error("❌ Missing stripe-signature header");
+    return res.status(400).send("Missing stripe-signature");
+  }
 
   let event;
   try {
@@ -30,8 +36,9 @@ const stripeWebhookHandler = async (req, res) => {
       sig,
       process.env.STRIPE_WEBHOOK_SECRET,
     );
+    console.log(`✅ Webhook verified: ${event.type}`);
   } catch (err) {
-    console.error("Signature verification failed:", err.message);
+    console.error(`❌ Signature verification failed: ${err.message}`);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -57,6 +64,11 @@ const stripeWebhookHandler = async (req, res) => {
       await handlePaymentFailed(event.data.object, req);
     }
 
+    // Stripe Connect account events for staff payouts
+    if (event.type === "account.updated") {
+      await handleAccountUpdated(event.data.object, req);
+    }
+
     return res.json({ received: true });
   } catch (err) {
     console.error("Webhook processing error:", err);
@@ -67,6 +79,7 @@ const stripeWebhookHandler = async (req, res) => {
 /* --------------------------- CUSTOMER PAYMENT SUCCESS --------------------------- */
 
 const handleCheckoutCompleted = async (session, req) => {
+  console.log("💰 Processing checkout.session.completed", session.id);
   const { userId, addressId, paymentId, bookingIds, dbCart } =
     session.metadata || {};
 
@@ -634,10 +647,10 @@ const handleProviderSubscriptionUpdated = async (subscription, req) => {
     where: { stripeSubscriptionId: subscription.id },
     data: {
       status: subscription.status,
-      currentPeriodEnd: new Date(periodEndUnix * 1000),
+      currentPeriodEnd: new Date(periodEndUnix),
       cancelAtPeriodEnd: subscription.cancel_at_period_end,
       cancelAt: subscription.cancel_at
-        ? new Date(subscription.cancel_at * 1000)
+        ? new Date(subscription.cancel_at)
         : null,
     },
   });

@@ -111,7 +111,7 @@ const register = async (req, res) => {
               userId: user.id,
               planId: freePlan.id,
               status: "active",
-              stripeSubscriptionId: `free_plan_${Date.now()}`,
+              stripeSubscriptionId: `free_sub_${user.id}`,
               stripeCustomerId: `free_cust_${user.id}`,
               currentPeriodStart: new Date(),
               currentPeriodEnd: new Date(
@@ -126,7 +126,6 @@ const register = async (req, res) => {
         console.error("Failed to assign default free plan:", planErr);
       }
     }
-
     res.status(201).json({
       success: true,
       message: "User registered successfully",
@@ -649,53 +648,7 @@ const logout = async (req, res) => {
   }
 };
 
-/* ---------------- LOGOUT FROM ALL DEVICES ---------------- */
-const logoutAll = async (req, res) => {
-  try {
-    const userId = req.user.id;
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: { tokenVersion: { increment: 1 } },
-    });
-
-    // Delete all refresh tokens for this user
-    const deletedTokens = await prisma.refreshToken.deleteMany({
-      where: { userId },
-    });
-
-    res.clearCookie("accessToken");
-    res.clearCookie("refreshToken");
-
-    // Log logout from all devices to database for admin tracking
-    await logUserActivity({
-      user: req.user,
-      actionType: "LOGOUT_ALL",
-      status: LogStatus.SUCCESS,
-      metadata: {
-        email: req.user.email,
-        role: req.user.role,
-        devicesLoggedOut: deletedTokens.count,
-        tokenVersionIncremented: true,
-      },
-      req,
-      description: `User logged out from all devices (${deletedTokens.count} sessions terminated)`,
-    });
-
-    return res.status(200).json({
-      success: true,
-      msg: "Logged out from all devices successfully.",
-    });
-  } catch (err) {
-    logError("Logout all devices error", err, {
-      userId: req.user?.id,
-    });
-    return res.status(500).json({
-      success: false,
-      message: "Server error during logout",
-    });
-  }
-};
 
 module.exports = {
   register,
@@ -704,5 +657,5 @@ module.exports = {
   resetPassword,
   refreshToken,
   logout,
-  logoutAll,
+
 };
