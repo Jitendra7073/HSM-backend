@@ -717,30 +717,22 @@ const addBankAccount = async (req, res) => {
       });
     }
 
-    // Check if account already exists
+    // Check if account with same number already exists
     const existingAccount = await prisma.bankAccount.findFirst({
-      where: { userId: providerId },
+      where: { userId: providerId, accountNumber },
     });
 
     if (existingAccount) {
-      // Update existing
-      const updatedAccount = await prisma.bankAccount.update({
-        where: { id: existingAccount.id },
-        data: {
-          bankName,
-          accountNumber,
-          ifscCode,
-          accountHolderName,
-          upiId,
-          isActive: true,
-        },
-      });
-      return res.status(200).json({
-        success: true,
-        msg: "Bank account updated successfully.",
-        bankAccount: updatedAccount,
+      return res.status(400).json({
+        success: false,
+        msg: "Bank account with this account number already exists.",
       });
     }
+
+    // Check if this is the first account (to make it default)
+    const count = await prisma.bankAccount.count({
+      where: { userId: providerId },
+    });
 
     // Create new
     const newAccount = await prisma.bankAccount.create({
@@ -753,7 +745,7 @@ const addBankAccount = async (req, res) => {
         upiId,
         isActive: true,
         status: "ACTIVE",
-        isDefault: true,
+        isDefault: count === 0,
         stripeAccountId: null,
         stripeExternalId: null,
         last4: accountNumber.slice(-4),
@@ -778,27 +770,27 @@ const addBankAccount = async (req, res) => {
 };
 
 /**
- * Get provider's bank account
+ * Get provider's bank accounts
  */
 const getBankAccount = async (req, res) => {
   const providerId = req.user.id;
 
   try {
-    const bankAccount = await prisma.bankAccount.findFirst({
+    const bankAccounts = await prisma.bankAccount.findMany({
       where: { userId: providerId },
     });
 
     return res.status(200).json({
       success: true,
-      msg: "Bank account fetched successfully.",
-      bankAccount: bankAccount,
-      hasAccount: !!bankAccount,
+      msg: "Bank accounts fetched successfully.",
+      bankAccounts: bankAccounts,
+      hasAccount: bankAccounts.length > 0,
     });
   } catch (error) {
     console.error("getBankAccount error:", error);
     return res.status(500).json({
       success: false,
-      msg: "Server Error: Could not fetch bank account.",
+      msg: "Server Error: Could not fetch bank accounts.",
       error: error.message,
     });
   }
@@ -833,6 +825,22 @@ const deleteBankAccount = async (req, res) => {
         success: false,
         msg: "You must have at least one bank account. Add another bank account before deleting this one.",
       });
+    }
+
+    // If deleting default account, set another as default
+    if (bankAccount.isDefault) {
+      const nextAccount = await prisma.bankAccount.findFirst({
+        where: {
+          userId: providerId,
+          NOT: { id: accountId },
+        },
+      });
+      if (nextAccount) {
+        await prisma.bankAccount.update({
+          where: { id: nextAccount.id },
+          data: { isDefault: true },
+        });
+      }
     }
 
     await prisma.bankAccount.delete({
