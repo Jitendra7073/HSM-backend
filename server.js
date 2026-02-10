@@ -59,6 +59,10 @@ const {
 } = require("./controllers/scheduler/staffAvailabilityScheduler");
 
 /* ---------------- PUBLIC ROUTE ---------------- */
+app.get("/", (req, res) => {
+  res.status(200).send("Backend is running healthy");
+});
+
 app.use("/auth", AuthRoutes);
 app.use("/api/v1", CommonRoute);
 
