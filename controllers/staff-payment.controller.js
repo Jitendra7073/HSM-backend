@@ -419,6 +419,18 @@ const deleteBankAccount = async (req, res) => {
       });
     }
 
+    // Check if this is the last bank account — at least one must remain
+    const bankAccountCount = await prisma.bankAccount.count({
+      where: { userId: staffId },
+    });
+
+    if (bankAccountCount <= 1) {
+      return res.status(400).json({
+        success: false,
+        msg: "You must have at least one bank account. Add another bank account before deleting this one.",
+      });
+    }
+
     await prisma.bankAccount.delete({
       where: { id: accountId },
     });

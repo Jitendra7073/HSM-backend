@@ -166,6 +166,21 @@ const deleteUserCardDetails = async (req, res) => {
       });
     }
 
+    // Check if this is the last active card — at least one card must remain
+    const activeCardCount = await prisma.userCardDetails.count({
+      where: {
+        userId: userId,
+        isActive: true,
+      },
+    });
+
+    if (activeCardCount <= 1) {
+      return res.status(400).json({
+        success: false,
+        msg: "You must have at least one card. Add another card before deleting this one.",
+      });
+    }
+
     // Check if this is the default card
     if (card.isDefault) {
       // Find another active card to set as default
