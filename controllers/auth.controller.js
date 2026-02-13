@@ -153,7 +153,7 @@ const register = async (req, res) => {
     await prisma.providerAdminActivityLog.create({
       data: {
         actorId: user.id,
-        actorType: req.user.role,
+        actorType: user.role,
         actionType: "REGISTER",
         status: "SUCCESS",
         metadata: {
@@ -392,7 +392,7 @@ const forgotPassword = async (req, res) => {
     await prisma.providerAdminActivityLog.create({
       data: {
         actorId: user.id,
-        actorType: req.user.role,
+        actorType: user.role,
         actionType: "PASSWORD_RESET_REQUEST",
         status: "EMAIL_SENT",
         metadata: {
